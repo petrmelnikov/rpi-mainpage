@@ -8,7 +8,7 @@
 <a href="/media/">media</a>
 <a href="//pi:8080">qbittorrent</a>
 <a href="//gta.pi/">gta</a>
-
+<br>
 <?php
 
 $action = !empty($_GET['action']) ? $_GET['action'] : '';
@@ -32,6 +32,7 @@ switch ($action) {
 }
 
 ?>
+<br>
 <a href="/">index</a>
 <a href="/?action=git-pull">git pull</a>
 <a href="/?action=wake-up-my-pc">wake up my pc</a>
