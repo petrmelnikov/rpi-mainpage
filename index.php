@@ -32,6 +32,7 @@ switch ($action) {
 }
 
 ?>
+<a href="/">index</a>
 <a href="/?action=git-pull">git pull</a>
 <a href="/?action=wake-up-my-pc">wake up my pc</a>
 
