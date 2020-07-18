@@ -6,8 +6,8 @@
 </iframe>
 --!>
 <a href="/media/">media</a>
-<a href="//<?php echo $_SERVER['SERVER_ADDR'] ?>:8080">qbittorrent</a>
-<a href="/gta/public/index.php">gta</a>
+<a href="//pi:8080">qbittorrent</a>
+<a href="//gta.pi/">gta</a>
 
 <pre>
     <?php
