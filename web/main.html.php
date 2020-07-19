@@ -1,5 +1,5 @@
 <head>
-<!--    <meta name="referrer" content="no-referrer"/>-->
+    <meta name="referrer" content="no-referrer"/>
 <!--    <script src="/vendor/components/jquery/jquery.min.js"></script>-->
 <!--    <script src="/vendor/twbs/bootstrap/dist/js/bootstrap.bundle.js"></script>-->
     <link rel="stylesheet" href="/vendor/twbs/bootstrap/dist/css/bootstrap.css">
