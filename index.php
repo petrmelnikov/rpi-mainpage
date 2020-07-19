@@ -3,6 +3,16 @@
 //require_once __DIR__ . '/vendor/autoload.php';
 
 $action = !empty($_GET['action']) ? $_GET['action'] : '';
+
+function buildContentRaw($command) {
+    return
+        '<br>' .
+        '<pre>' .
+        shell_exec($command) .
+        '</pre>' .
+        '<br>';
+}
+
 switch ($action) {
     case 'git-pull':
         $content = shell_exec('git pull 2>&1');
@@ -13,17 +23,9 @@ switch ($action) {
     case 'index':
     default:
         $content = [
-            '<pre>' .
-            shell_exec('df -h | grep \'Use\|usb_hdd\'') .
-            '</pre>',
-            "\n" .
-            '<pre>' .
-            shell_exec('top -b -n 1 | head -20') .
-            '</pre>',
-            "\n" .
-            '<pre>' .
-            shell_exec('/opt/vc/bin/vcgencmd measure_temp') .
-            '</pre>'
+            buildContentRaw('df -h | grep \'Use\|usb_hdd\' 2>&1'),
+            buildContentRaw('top -b -n 1 2>&1 | head -20 2>&1'),
+            buildContentRaw('/opt/vc/bin/vcgencmd measure_temp 2>&1'),
         ];
         break;
 }
