@@ -1,5 +1,7 @@
 <head>
-    <meta name="referrer" content="no-referrer"/>
+<!--    <meta name="referrer" content="no-referrer"/>-->
+    <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.css">
+    <script src="/node_modules/bootstrap/dist/js/bootstrap.bundle.js"></script>
 </head>
 <!--
 <iframe src=iframe.php style="border:none;height:30;width:110">
