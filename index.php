@@ -6,8 +6,8 @@
 </iframe>
 --!>
 <a href="/media/">media</a>
-<a href="//pi:8080">qbittorrent</a>
-<a href="//gta.pi/">gta</a>
+<a href="//pi.lan:8080">qbittorrent</a>
+<a href="//gta.pi.lan/">gta</a>
 <br>
 <?php
 
