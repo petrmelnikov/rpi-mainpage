@@ -1,20 +1,35 @@
 <head>
 <!--    <meta name="referrer" content="no-referrer"/>-->
+<!--    <script src="/vendor/components/jquery/jquery.min.js"></script>-->
+<!--    <script src="/vendor/twbs/bootstrap/dist/js/bootstrap.bundle.js"></script>-->
     <link rel="stylesheet" href="/vendor/twbs/bootstrap/dist/css/bootstrap.css">
-    <script src="/vendor/twbs/bootstrap/dist/js/bootstrap.bundle.js"></script>
 </head>
 <!--
 <iframe src=iframe.php style="border:none;height:30;width:110">
 </iframe>
 --!>
-<a href="/">index</a>
-<a href="/media/">media</a>
-<a href="//pi.lan:8080">qbittorrent</a>
-<a href="//gta.pi.lan/">gta</a>
-<a href="//router.lan/">router</a>
-<br>
-<?= $content ?>
-<br>
-<a href="/?action=git-pull">git pull</a>
-<a href="/?action=wake-up-my-pc">wake up my pc</a>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-sm">
+                <a class="btn btn-primary" href="/">index</a>
+                <a class="btn btn-primary" href="/media/">media</a>
+                <a class="btn btn-primary" href="//pi.lan:8080">qbittorrent</a>
+                <a class="btn btn-primary" href="//gta.pi.lan/">gta</a>
+                <a class="btn btn-primary" href="//router.lan/">router</a>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm">
+                <?= $content ?>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm">
+                <a class="btn btn-primary" href="/?action=git-pull">git pull</a>
+                <a class="btn btn-primary" href="/?action=wake-up-my-pc">wake up my pc</a>
+            </div>
+        </div>
+    </div>
 
+</body>
