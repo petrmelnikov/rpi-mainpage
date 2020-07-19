@@ -12,13 +12,19 @@ switch ($action) {
         break;
     case 'index':
     default:
-        $content = '<pre>' .
+        $content = [
+            '<pre>' .
             shell_exec('df -h | grep \'Use\|usb_hdd\'') .
+            '</pre>',
             "\n" .
+            '<pre>' .
             shell_exec('top -b -n 1 | head -20') .
+            '</pre>',
             "\n" .
+            '<pre>' .
             shell_exec('/opt/vc/bin/vcgencmd measure_temp') .
-            '</pre>';
+            '</pre>'
+        ];
         break;
 }
 

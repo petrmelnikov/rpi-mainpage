@@ -21,7 +21,25 @@
         </div>
         <div class="row">
             <div class="col-sm">
-                <?= $content ?>
+                    <?php
+                    if (is_array($content)) {
+                        ?>
+                        <table class="table">
+                        <?php
+                        foreach ($content as $row) {
+                            ?>
+                            <tr>
+                                <td><?= $row ?></td>
+                            </tr>
+                            <?php
+                        }
+                        ?>
+                        </table>
+                        <?php
+                    } else {
+                        echo $content;
+                    }
+                    ?>
             </div>
         </div>
         <div class="row">
