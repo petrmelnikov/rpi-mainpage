@@ -8,10 +8,10 @@ use App\TemplateRenderer;
 $router = new Router();
 
 $router->addRoute('GET', '', function () {
-    return ['shellCommandRawContent' => [
+    return ['shellCommandRawContent' => array_merge(
         ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo'),
         ShellCommandExecutor::executeWithSplitByLines("df -h | grep 'usb' 2>&1")
-    ]];
+    )];
 }, __DIR__ . '/templates/shell_command_raw_content.html.php');
 
 $router->addRoute('GET', '/top', function () {

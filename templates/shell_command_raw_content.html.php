@@ -8,7 +8,7 @@
                 foreach ($shellCommandRawContent as $row) {
                     ?>
                     <tr>
-                        <td><?= $row ?></td>
+                        <td><pre><?= $row ?></pre></td>
                     </tr>
                     <?php
                 }
@@ -16,7 +16,9 @@
             </table>
             <?php
         } else {
-            echo $shellCommandRawContent;
+            ?>
+            <pre><?= $shellCommandRawContent ?></pre>
+            <?php
         }
         ?>
     </div>
