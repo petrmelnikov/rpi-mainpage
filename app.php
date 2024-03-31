@@ -21,6 +21,7 @@ $router->addRoute('GET', '/top', function () {
 
 $router->addRoute('GET', '/update-code', function () {
     return ['shellCommandRawContent' => array_merge(
+        ShellCommandExecutor::executeWithSplitByLines('ssh -T git@github.com 2>&1'),
         ShellCommandExecutor::executeWithSplitByLines('git pull 2>&1'),
         ShellCommandExecutor::executeWithSplitByLines('composer install 2>&1')
     )];
