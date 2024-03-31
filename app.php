@@ -19,9 +19,11 @@ $router->addRoute('GET', '/top', function () {
     return ['shellCommandRawContent' => ShellCommandExecutor::executeWithSplitByLines($command)];
 }, __DIR__ . '/templates/shell_command_raw_content.html.php');
 
-$router->addRoute('GET', '/git-pull', function () {
-    $command = 'git pull 2>&1';
-    return ['shellCommandRawContent' => ShellCommandExecutor::execute($command)];
+$router->addRoute('GET', '/update-code', function () {
+    return ['shellCommandRawContent' => array_merge(
+        ShellCommandExecutor::executeWithSplitByLines('git pull 2>&1'),
+        ShellCommandExecutor::executeWithSplitByLines('composer install 2>&1')
+    )];
 }, __DIR__ . '/templates/shell_command_raw_content.html.php');
 
 $routeDataDto = $router->parse($_SERVER);
