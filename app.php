@@ -9,13 +9,18 @@ $router = new Router();
 
 $router->addRoute('GET', '', function () {
     return ['shellCommandRawContent' => [
-        ShellCommandExecutor::execute('landscape-sysinfo'),
-        ShellCommandExecutor::execute("df -h | grep 'usb' 2>&1")
+        ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo'),
+        ShellCommandExecutor::executeWithSplitByLines("df -h | grep 'usb' 2>&1")
     ]];
 }, __DIR__ . '/templates/shell_command_raw_content.html.php');
 
 $router->addRoute('GET', '/top', function () {
     $command = 'top -b -n 1 2>&1 | head -20 2>&1';
+    return ['shellCommandRawContent' => ShellCommandExecutor::executeWithSplitByLines($command)];
+}, __DIR__ . '/templates/shell_command_raw_content.html.php');
+
+$router->addRoute('GET', '/git-pull', function () {
+    $command = 'git pull 2>&1';
     return ['shellCommandRawContent' => ShellCommandExecutor::execute($command)];
 }, __DIR__ . '/templates/shell_command_raw_content.html.php');
 

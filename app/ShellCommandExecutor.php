@@ -14,4 +14,10 @@ class ShellCommandExecutor
 
         return $result;
     }
+
+    public static function executeWithSplitByLines(string $command): array
+    {
+        $result = self::execute($command);
+        return explode("\n", $result);
+    }
 }
