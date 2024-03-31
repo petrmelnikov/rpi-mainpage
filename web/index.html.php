@@ -1,7 +1,8 @@
 <html lang="en">
     <head>
         <meta name="referrer" content="no-referrer"/>
-        <title>Orange Pi Home Page</title>
+        <title>opi</title>
+        <link rel="stylesheet" href="/vendor/twbs/bootstrap/dist/css/bootstrap.css">
     </head>
     <body>
         <div class="container">
