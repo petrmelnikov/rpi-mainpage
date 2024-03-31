@@ -1,25 +1,27 @@
-<div class="row">
-    <div class="col-sm">
-        <?php
-        if (is_array($shellCommandRawContent)) {
-            ?>
-            <table class="table">
-                <?php
-                foreach ($shellCommandRawContent as $row) {
-                    ?>
-                    <tr>
-                        <td><pre><?= $row ?></pre></td>
-                    </tr>
-                    <?php
-                }
+<table class="table">
+    <div class="row">
+        <div class="col-sm">
+            <?php
+            if (is_array($shellCommandRawContent)) {
                 ?>
-            </table>
-            <?php
-        } else {
+                <table class="table">
+                    <?php
+                    foreach ($shellCommandRawContent as $row) {
+                        ?>
+                        <tr>
+                            <td><pre><?= $row ?></pre></td>
+                        </tr>
+                        <?php
+                    }
+                    ?>
+                </table>
+                <?php
+            } else {
+                ?>
+                <pre><?= $shellCommandRawContent ?></pre>
+                <?php
+            }
             ?>
-            <pre><?= $shellCommandRawContent ?></pre>
-            <?php
-        }
-        ?>
+        </div>
     </div>
-</div>
+</table>
