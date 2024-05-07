@@ -6,7 +6,10 @@
     </head>
     <body>
         <div class="container">
-            <?= $body ?>
+            <?php
+                /** @var string $body */
+                echo $body
+            ?>
         </div>
     </body>
 </html>
