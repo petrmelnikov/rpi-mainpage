@@ -8,8 +8,8 @@ class ShellCommandExecutor
     {
         $result = shell_exec($command);
 
-        if ($result === null) {
-            throw new \RuntimeException('Command execution failed');
+        if (!is_string($result)) {
+            $result = '';
         }
 
         return $result;
@@ -19,5 +19,14 @@ class ShellCommandExecutor
     {
         $result = self::execute($command);
         return explode("\n", $result);
+    }
+
+    public static function multipleExecute(string ...$commands): array
+    {
+        $result = [];
+        foreach ($commands as $command) {
+            $result[] = self::execute($command);
+        }
+        return $result;
     }
 }

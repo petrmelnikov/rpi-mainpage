@@ -37,7 +37,7 @@ class Router
             'method' => $method,
             'path' => $path,
             'handler' => $handler,
-            'template' => $template
+            'template' => $template,
         ];
     }
 }
