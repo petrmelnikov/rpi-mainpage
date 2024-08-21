@@ -16,7 +16,7 @@ class MenuBuilder
         }
 
         $appRoot = App::getInstance()->appRoot;
-        $this->configPath = $appRoot . $this->configPath;
+        $this->configPath = rtrim($appRoot, '/') . '/' . ltrim($this->configPath, '/');
 
         if (file_exists($this->configPath)) {
             $this->config = json_decode(file_get_contents($this->configPath), true);

@@ -17,7 +17,13 @@ class ShellCommandExecutor
 
     public static function executeWithSplitByLines(string $command): array
     {
-        $result = self::execute($command);
+        try {
+            $result = self::execute($command);
+        } catch (\RuntimeException $e) {
+            return [
+                $e->getMessage(),
+            ];
+        }
         return explode("\n", $result);
     }
 }

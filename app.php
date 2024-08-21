@@ -38,7 +38,7 @@ $routeDataDto = $router->parse($_SERVER);
 $handler = $routeDataDto->handler;
 
 //$content = file_get_contents(__DIR__ . '/templates/top_main_menu.html.php');
-$content = TemplateRenderer::render($app->appRoot . '/templates/top_main_menu.html.php', ['menuItems' => $topMainMenu]);
+$content = TemplateRenderer::render($app->appRoot . '/templates/top_main_menu.html.php', ['topMainMenu' => $topMainMenu]);
 if (!empty($routeDataDto->templatePath)){
     $content .= TemplateRenderer::render($routeDataDto->templatePath, $handler());
 } else {
