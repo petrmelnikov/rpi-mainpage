@@ -4,6 +4,9 @@ require_once __DIR__ . '/vendor/autoload.php';
 use App\Router;
 use App\ShellCommandExecutor;
 use App\TemplateRenderer;
+use App\MenuBuilder;
+
+$topMainMenu = (new MenuBuilder())->buildMenuArray();
 
 $router = new Router();
 
