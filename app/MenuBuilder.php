@@ -6,7 +6,7 @@ use App\Dto\MenuItemDto;
 
 class MenuBuilder
 {
-    private string $configPath = __DIR__ . '/config/top_menu.json';
+    private string $configPath = '/config/top_menu.json';
     private ?array $config = null;
 
     public function __construct(string $configPath = null)
@@ -14,6 +14,9 @@ class MenuBuilder
         if ($configPath) {
             $this->configPath = $configPath;
         }
+
+        $appRoot = App::getInstance()->appRoot;
+        $this->configPath = $appRoot . $this->configPath;
 
         if (file_exists($this->configPath)) {
             $this->config = json_decode(file_get_contents($this->configPath), true);
