@@ -1,0 +1,43 @@
+<?php
+
+namespace App;
+
+use App\Dto\MenuItemDto;
+
+class MenuBuilder
+{
+    private string $configPath = '/config/top_menu.json';
+    private ?array $config = null;
+
+    public function __construct(string $configPath = null)
+    {
+        if ($configPath) {
+            $this->configPath = $configPath;
+        }
+
+        $appRoot = App::getInstance()->appRoot;
+        $this->configPath = rtrim($appRoot, '/') . '/' . ltrim($this->configPath, '/');
+
+        if (file_exists($this->configPath)) {
+            $this->config = json_decode(file_get_contents($this->configPath), true);
+        }
+    }
+
+    public function buildMenuArray(): array
+    {
+        if ($this->config === null) {
+            return [];
+        }
+
+        $menuItems = [];
+        foreach ($this->config as $item) {
+            $menuItem = new MenuItemDto();
+            $menuItem->url = $item['url'];
+            $menuItem->name = $item['name'];
+            $menuItems[] = $menuItem;
+        }
+
+        return $menuItems;
+    }
+
+}
