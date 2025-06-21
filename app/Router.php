@@ -11,6 +11,8 @@ class Router
         $method = $server['REQUEST_METHOD'];
         $path = $server['REQUEST_URI'];
 
+        // Remove query parameters from path
+        $path = parse_url($path, PHP_URL_PATH);
         $path = trim($path, '/');
 
         $routeData = new RouteDataDto();

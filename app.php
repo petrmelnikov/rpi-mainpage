@@ -5,6 +5,7 @@ use App\Router;
 use App\ShellCommandExecutor;
 use App\TemplateRenderer;
 use App\MenuBuilder;
+use App\MenuManager;
 use App\App;
 
 $app = App::getInstance();
@@ -33,6 +34,78 @@ $router->addRoute('GET', '/update-code', function () {
         ShellCommandExecutor::executeWithSplitByLines('composer install 2>&1')
     )];
 }, $app->appRoot . '/templates/shell_command_raw_content.html.php');
+
+// Settings routes
+$router->addRoute('GET', '/settings', function () {
+    $menuManager = new MenuManager();
+    $menuItems = $menuManager->getMenuItems();
+    
+    $result = [
+        'menuItems' => $menuItems
+    ];
+    
+    // Handle messages from redirects
+    if (isset($_GET['message'])) {
+        $result['message'] = $_GET['message'];
+        $result['messageType'] = $_GET['type'] ?? 'info';
+    }
+    
+    return $result;
+}, $app->appRoot . '/templates/settings.html.php');
+
+$router->addRoute('POST', '/settings/top-menu/create', function () {
+    $menuManager = new MenuManager();
+    $name = $_POST['name'] ?? '';
+    $url = $_POST['url'] ?? '';
+    
+    $errors = $menuManager->validateMenuItem($name, $url);
+    
+    if (empty($errors)) {
+        $success = $menuManager->addMenuItem($name, $url);
+        if ($success) {
+            header('Location: /settings?message=' . urlencode('Menu item added successfully') . '&type=success');
+        } else {
+            header('Location: /settings?message=' . urlencode('Failed to add menu item. Name might already exist.') . '&type=danger');
+        }
+    } else {
+        header('Location: /settings?message=' . urlencode(implode(', ', $errors)) . '&type=danger');
+    }
+    exit;
+});
+
+$router->addRoute('POST', '/settings/top-menu/edit', function () {
+    $menuManager = new MenuManager();
+    $index = intval($_POST['index'] ?? -1);
+    $name = $_POST['name'] ?? '';
+    $url = $_POST['url'] ?? '';
+    
+    $errors = $menuManager->validateMenuItem($name, $url);
+    
+    if (empty($errors)) {
+        $success = $menuManager->editMenuItem($index, $name, $url);
+        if ($success) {
+            header('Location: /settings?message=' . urlencode('Menu item updated successfully') . '&type=success');
+        } else {
+            header('Location: /settings?message=' . urlencode('Failed to update menu item. Name might already exist or index invalid.') . '&type=danger');
+        }
+    } else {
+        header('Location: /settings?message=' . urlencode(implode(', ', $errors)) . '&type=danger');
+    }
+    exit;
+});
+
+$router->addRoute('POST', '/settings/top-menu/delete', function () {
+    $menuManager = new MenuManager();
+    $index = intval($_POST['index'] ?? -1);
+    
+    $success = $menuManager->deleteMenuItem($index);
+    if ($success) {
+        header('Location: /settings?message=' . urlencode('Menu item deleted successfully') . '&type=success');
+    } else {
+        header('Location: /settings?message=' . urlencode('Failed to delete menu item. Invalid index.') . '&type=danger');
+    }
+    exit;
+});
 
 $routeDataDto = $router->parse($_SERVER);
 $handler = $routeDataDto->handler;
