@@ -11,6 +11,10 @@ use App\App;
 $app = App::getInstance();
 $app->appRoot = __DIR__;
 
+// Configuration - File Index Catalog Path
+// Change this constant to point to the directory you want to index
+define('FILE_INDEX_CATALOG_PATH', '/Users/user/Documents');
+
 $topMainMenu = (new MenuBuilder())->buildMenuArray();
 
 $router = new Router();
@@ -34,6 +38,75 @@ $router->addRoute('GET', '/update-code', function () {
         ShellCommandExecutor::executeWithSplitByLines('composer install 2>&1')
     )];
 }, $app->appRoot . '/templates/shell_command_raw_content.html.php');
+
+$router->addRoute('GET', '/file-index', function () {
+    // Use the hardcoded catalog path constant
+    $catalogPath = FILE_INDEX_CATALOG_PATH;
+    
+    $files = [];
+    $errors = [];
+    
+    if (is_dir($catalogPath)) {
+        try {
+            // Check if directory is readable
+            if (!is_readable($catalogPath)) {
+                $errors[] = "Directory is not readable: " . $catalogPath;
+            } else {
+                $iterator = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($catalogPath, RecursiveDirectoryIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::SELF_FIRST
+                );
+                
+                $fileCount = 0;
+                $maxFiles = 1000; // Limit to prevent overwhelming the page
+                
+                foreach ($iterator as $file) {
+                    try {
+                        if ($fileCount >= $maxFiles) {
+                            $errors[] = "Display limited to first {$maxFiles} items for performance";
+                            break;
+                        }
+                        
+                        $relativePath = str_replace($catalogPath . '/', '', $file->getPathname());
+                        $files[] = [
+                            'name' => $file->getFilename(),
+                            'path' => $relativePath,
+                            'fullPath' => $file->getPathname(),
+                            'isDir' => $file->isDir(),
+                            'size' => $file->isFile() ? $file->getSize() : 0,
+                            'modified' => $file->getMTime(),
+                            'depth' => $iterator->getDepth()
+                        ];
+                        $fileCount++;
+                    } catch (Exception $e) {
+                        // Skip files that can't be read (permission issues, etc.)
+                        continue;
+                    }
+                }
+                
+                // Sort files: directories first, then by name
+                usort($files, function($a, $b) {
+                    if ($a['isDir'] && !$b['isDir']) return -1;
+                    if (!$a['isDir'] && $b['isDir']) return 1;
+                    return strcasecmp($a['name'], $b['name']);
+                });
+            }
+            
+        } catch (Exception $e) {
+            $errors[] = "Error reading directory: " . $e->getMessage();
+        }
+    } else {
+        $errors[] = "Catalog path does not exist or is not accessible: " . $catalogPath;
+    }
+    
+    return [
+        'catalogPath' => $catalogPath,
+        'files' => $files,
+        'errors' => $errors,
+        'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
+        'totalDirs' => count(array_filter($files, fn($f) => $f['isDir']))
+    ];
+}, $app->appRoot . '/templates/file_index.html.php');
 
 // Settings routes
 $router->addRoute('GET', '/settings', function () {
