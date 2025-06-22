@@ -97,15 +97,6 @@
                                     Enter the full path to the directory you want to index in the File Index page.
                                     The path must be readable by the web server.
                                 </div>
-                                <div class="mt-2">
-                                    <small class="text-muted">Common paths:</small>
-                                    <div class="btn-group-sm mt-1" role="group">
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/Documents'">~/Documents</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/Downloads'">~/Downloads</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/projects'">~/projects</button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/home/pi/Documents'">/home/pi/Documents</button>
-                                    </div>
-                                </div>
                             </div>
                             <div class="d-flex justify-content-between">
                                 <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -153,15 +144,6 @@
                                         </td>
                                     </tr>
                                 </table>
-                            </div>
-                            <div class="col-md-6">
-                                <h6>Tips</h6>
-                                <ul class="small text-muted">
-                                    <li>Use absolute paths (e.g., /home/user/documents)</li>
-                                    <li>Ensure the web server has read permissions</li>
-                                    <li>Large directories may take time to load</li>
-                                    <li>The file index is limited to 1000 items for performance</li>
-                                </ul>
                             </div>
                         </div>
                     </div>
