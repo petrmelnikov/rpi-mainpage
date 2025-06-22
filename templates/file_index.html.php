@@ -151,10 +151,15 @@
                                            class="btn btn-sm btn-outline-primary download-btn" 
                                            title="Download directory as .tar.gz archive"
                                            onclick="showDownloadProgress(this)">
-                                            📦 Download
+                                            📦 Archive
                                         </a>
                                     <?php else: ?>
-                                        <span class="text-muted">-</span>
+                                        <a href="/file-index/download/file?path=<?= urlencode($file['path']) ?>" 
+                                           class="btn btn-sm btn-outline-success download-btn" 
+                                           title="Download file"
+                                           download>
+                                            💾 Download
+                                        </a>
                                     <?php endif; ?>
                                 </td>
                             </tr>

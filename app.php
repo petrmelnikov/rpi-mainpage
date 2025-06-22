@@ -209,6 +209,75 @@ $router->addRoute('GET', '/file-index/download', function () {
     exit;
 });
 
+// File download route (individual files, not compressed)
+$router->addRoute('GET', '/file-index/download/file', function () {
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $fileIndexManager->getCatalogPath();
+    $relativePath = $_GET['path'] ?? '';
+    
+    // Sanitize and validate the requested path
+    $relativePath = trim($relativePath, '/');
+    $fullPath = $catalogPath;
+    
+    if (!empty($relativePath)) {
+        // Prevent directory traversal attacks
+        $relativePath = str_replace(['../', '.\\', '..\\'], '', $relativePath);
+        $fullPath = rtrim($catalogPath, '/') . '/' . $relativePath;
+    }
+    
+    // Validate the path
+    if (!file_exists($fullPath)) {
+        http_response_code(404);
+        echo "File not found";
+        exit;
+    }
+    
+    if (!is_file($fullPath)) {
+        http_response_code(400);
+        echo "Path is not a file";
+        exit;
+    }
+    
+    if (!is_readable($fullPath)) {
+        http_response_code(403);
+        echo "File not readable";
+        exit;
+    }
+    
+    // Get file information
+    $fileName = basename($fullPath);
+    $fileSize = filesize($fullPath);
+    $mimeType = mime_content_type($fullPath) ?: 'application/octet-stream';
+    
+    // Set headers for direct file download
+    header('Content-Type: ' . $mimeType);
+    header('Content-Disposition: attachment; filename="' . $fileName . '"');
+    header('Content-Length: ' . $fileSize);
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Expires: 0');
+    header('X-File-Name: ' . $fileName);
+    header('X-File-Size: ' . $fileSize);
+    
+    // Stream the file directly to output
+    $handle = fopen($fullPath, 'rb');
+    if ($handle) {
+        while (!feof($handle)) {
+            $chunk = fread($handle, 8192);
+            if ($chunk !== false) {
+                echo $chunk;
+                ob_flush();
+                flush();
+            }
+        }
+        fclose($handle);
+    } else {
+        http_response_code(500);
+        echo "Failed to read file";
+    }
+    
+    exit;
+});
+
 // Settings routes
 $router->addRoute('GET', '/settings', function () {
     $menuManager = new MenuManager();
