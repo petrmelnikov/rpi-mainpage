@@ -2,11 +2,56 @@
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2>File Index</h2>
-            <a href="/file-index" class="btn btn-outline-primary btn-sm">
-                🔄 Refresh
-            </a>
+            <div>
+                <a href="/file-index/download?path=<?= urlencode($currentPath ?? '') ?>" 
+                   class="btn btn-outline-success btn-sm me-2 download-btn"
+                   onclick="showDownloadProgress(this)">
+                    📦 Download Current Directory
+                </a>
+                <a href="/file-index<?= !empty($currentPath) ? '?path=' . urlencode($currentPath) : '' ?>" 
+                   class="btn btn-outline-primary btn-sm">
+                    🔄 Refresh
+                </a>
+            </div>
         </div>
-        <p class="text-muted">Catalog Path: <code><?= htmlspecialchars($catalogPath) ?></code></p>
+        
+        <!-- Breadcrumb Navigation -->
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <?php foreach ($breadcrumbs as $index => $crumb): ?>
+                    <?php if ($index === count($breadcrumbs) - 1): ?>
+                        <li class="breadcrumb-item active" aria-current="page">
+                            <?= htmlspecialchars($crumb['name']) ?>
+                        </li>
+                    <?php else: ?>
+                        <li class="breadcrumb-item">
+                            <a href="/file-index<?= !empty($crumb['path']) ? '?path=' . urlencode($crumb['path']) : '' ?>">
+                                <?= htmlspecialchars($crumb['name']) ?>
+                            </a>
+                        </li>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </ol>
+        </nav>
+        
+        <?php if (!empty($currentPath)): ?>
+            <div class="mb-3">
+                <?php
+                // Calculate parent path
+                $pathParts = explode('/', $currentPath);
+                array_pop($pathParts);
+                $parentPath = implode('/', $pathParts);
+                ?>
+                <a href="/file-index<?= !empty($parentPath) ? '?path=' . urlencode($parentPath) : '' ?>" 
+                   class="btn btn-outline-secondary btn-sm">
+                    ⬆️ Parent Directory
+                </a>
+            </div>
+        <?php endif; ?>
+        
+        <p class="text-muted">
+            Current Path: <code><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
+        </p>
         
         <?php if (!empty($errors)): ?>
             <div class="alert alert-danger">
@@ -34,6 +79,7 @@
                             <th>Path</th>
                             <th>Size</th>
                             <th>Modified</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -41,7 +87,10 @@
                             <tr>
                                 <td>
                                     <?php if ($file['isDir']): ?>
-                                        <i class="text-warning">📁</i> <span class="badge bg-warning text-dark">DIR</span>
+                                        <i class="text-warning">📁</i> 
+                                        <span class="badge bg-warning text-dark">
+                                            <?= $file['isNavigable'] ? 'DIR' : 'DIR (restricted)' ?>
+                                        </span>
                                     <?php else: ?>
                                         <?php
                                         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
@@ -63,8 +112,15 @@
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span style="margin-left: <?= $file['depth'] * 20 ?>px;">
-                                        <?= htmlspecialchars($file['name']) ?>
+                                    <span class="fw-medium">
+                                        <?php if ($file['isDir'] && $file['isNavigable']): ?>
+                                            <a href="/file-index?path=<?= urlencode($file['path']) ?>" 
+                                               class="text-decoration-none">
+                                                <?= htmlspecialchars($file['name']) ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <?= htmlspecialchars($file['name']) ?>
+                                        <?php endif; ?>
                                     </span>
                                 </td>
                                 <td class="small text-muted">
@@ -89,6 +145,18 @@
                                 <td class="small">
                                     <?= date('Y-m-d H:i:s', $file['modified']) ?>
                                 </td>
+                                <td>
+                                    <?php if ($file['isDir']): ?>
+                                        <a href="/file-index/download?path=<?= urlencode($file['path']) ?>" 
+                                           class="btn btn-sm btn-outline-primary download-btn" 
+                                           title="Download directory as .tar.gz archive"
+                                           onclick="showDownloadProgress(this)">
+                                            📦 Download
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -101,3 +169,42 @@
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+function showDownloadProgress(button) {
+    // Store original content
+    const originalText = button.innerHTML;
+    const originalClass = button.className;
+    
+    // Show loading state
+    button.innerHTML = '⏳ Creating Archive...';
+    button.className = button.className.replace('btn-outline-success', 'btn-secondary');
+    button.disabled = true;
+    
+    // Reset after download starts (browsers will handle the actual download)
+    setTimeout(() => {
+        button.innerHTML = originalText;
+        button.className = originalClass;
+        button.disabled = false;
+    }, 3000);
+}
+</script>
+
+<script>
+function showDownloadProgress(button) {
+    const originalText = button.innerHTML;
+    const originalClass = button.className;
+    
+    // Show loading state
+    button.innerHTML = '⏳ Preparing Download...';
+    button.className = button.className.replace('btn-outline-', 'btn-');
+    button.disabled = true;
+    
+    // Reset button after a delay (in case download starts immediately)
+    setTimeout(function() {
+        button.innerHTML = originalText;
+        button.className = originalClass;
+        button.disabled = false;
+    }, 3000);
+}
+</script>

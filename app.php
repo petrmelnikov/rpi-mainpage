@@ -41,31 +41,47 @@ $router->addRoute('GET', '/file-index', function () {
     $fileIndexManager = new FileIndexManager();
     $catalogPath = $fileIndexManager->getCatalogPath();
     
+    // Get the current directory path from query parameter
+    $currentPath = $_GET['path'] ?? '';
+    $currentPath = trim($currentPath, '/');
+    
+    // Build the full current directory path
+    $currentFullPath = $catalogPath;
+    if (!empty($currentPath)) {
+        // Prevent directory traversal attacks
+        $currentPath = str_replace(['../', '.\\', '..\\'], '', $currentPath);
+        $currentFullPath = rtrim($catalogPath, '/') . '/' . $currentPath;
+    }
+    
     $files = [];
     $errors = [];
+    $breadcrumbs = [];
     
-    if (is_dir($catalogPath)) {
+    // Build breadcrumbs
+    $breadcrumbs[] = ['name' => 'Root', 'path' => ''];
+    if (!empty($currentPath)) {
+        $pathParts = explode('/', $currentPath);
+        $buildPath = '';
+        foreach ($pathParts as $part) {
+            $buildPath = $buildPath ? $buildPath . '/' . $part : $part;
+            $breadcrumbs[] = ['name' => $part, 'path' => $buildPath];
+        }
+    }
+    
+    if (is_dir($currentFullPath)) {
         try {
             // Check if directory is readable
-            if (!is_readable($catalogPath)) {
-                $errors[] = "Directory is not readable: " . $catalogPath;
+            if (!is_readable($currentFullPath)) {
+                $errors[] = "Directory is not readable: " . $currentFullPath;
             } else {
-                $iterator = new RecursiveIteratorIterator(
-                    new RecursiveDirectoryIterator($catalogPath, RecursiveDirectoryIterator::SKIP_DOTS),
-                    RecursiveIteratorIterator::SELF_FIRST
-                );
-                
-                $fileCount = 0;
-                $maxFiles = 1000; // Limit to prevent overwhelming the page
+                // Read only the current directory (non-recursive)
+                $iterator = new DirectoryIterator($currentFullPath);
                 
                 foreach ($iterator as $file) {
+                    if ($file->isDot()) continue;
+                    
                     try {
-                        if ($fileCount >= $maxFiles) {
-                            $errors[] = "Display limited to first {$maxFiles} items for performance";
-                            break;
-                        }
-                        
-                        $relativePath = str_replace($catalogPath . '/', '', $file->getPathname());
+                        $relativePath = $currentPath ? $currentPath . '/' . $file->getFilename() : $file->getFilename();
                         $files[] = [
                             'name' => $file->getFilename(),
                             'path' => $relativePath,
@@ -73,9 +89,8 @@ $router->addRoute('GET', '/file-index', function () {
                             'isDir' => $file->isDir(),
                             'size' => $file->isFile() ? $file->getSize() : 0,
                             'modified' => $file->getMTime(),
-                            'depth' => $iterator->getDepth()
+                            'isNavigable' => $file->isDir() && $file->isReadable()
                         ];
-                        $fileCount++;
                     } catch (Exception $e) {
                         // Skip files that can't be read (permission issues, etc.)
                         continue;
@@ -94,17 +109,105 @@ $router->addRoute('GET', '/file-index', function () {
             $errors[] = "Error reading directory: " . $e->getMessage();
         }
     } else {
-        $errors[] = "Catalog path does not exist or is not accessible: " . $catalogPath;
+        $errors[] = "Directory does not exist or is not accessible: " . $currentFullPath;
     }
     
     return [
         'catalogPath' => $catalogPath,
+        'currentPath' => $currentPath,
+        'currentFullPath' => $currentFullPath,
+        'breadcrumbs' => $breadcrumbs,
         'files' => $files,
         'errors' => $errors,
         'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
         'totalDirs' => count(array_filter($files, fn($f) => $f['isDir']))
     ];
 }, $app->appRoot . '/templates/file_index.html.php');
+
+$router->addRoute('GET', '/file-index/download', function () {
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $fileIndexManager->getCatalogPath();
+    $relativePath = $_GET['path'] ?? '';
+    
+    // Sanitize and validate the requested path
+    $relativePath = trim($relativePath, '/');
+    $fullPath = $catalogPath;
+    
+    if (!empty($relativePath)) {
+        // Prevent directory traversal attacks
+        $relativePath = str_replace(['../', '.\\', '..\\'], '', $relativePath);
+        $fullPath = rtrim($catalogPath, '/') . '/' . $relativePath;
+    }
+    
+    // Validate the path
+    if (!file_exists($fullPath)) {
+        http_response_code(404);
+        echo "Directory not found";
+        exit;
+    }
+    
+    if (!is_dir($fullPath)) {
+        http_response_code(400);
+        echo "Path is not a directory";
+        exit;
+    }
+    
+    if (!is_readable($fullPath)) {
+        http_response_code(403);
+        echo "Directory not readable";
+        exit;
+    }
+    
+    // Generate archive name
+    $dirName = basename($fullPath);
+    if (empty($dirName)) {
+        $dirName = 'catalog';
+    }
+    $archiveName = $dirName . '.tar.gz';
+    
+    // Set headers for download
+    header('Content-Type: application/gzip');
+    header('Content-Disposition: attachment; filename="' . $archiveName . '"');
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Expires: 0');
+    header('X-Archive-Name: ' . $archiveName);
+    header('X-Source-Path: ' . basename($fullPath));
+    
+    // Stream the tar.gz archive directly to output
+    $descriptorspec = [
+        0 => ["pipe", "r"],  // stdin
+        1 => ["pipe", "w"],  // stdout
+        2 => ["pipe", "w"]   // stderr
+    ];
+    
+    // Use tar with gzip compression, streaming to stdout
+    $cmd = "cd " . escapeshellarg(dirname($fullPath)) . " && tar -czf - " . escapeshellarg(basename($fullPath)) . " 2>/dev/null";
+    $process = proc_open($cmd, $descriptorspec, $pipes);
+    
+    if (is_resource($process)) {
+        // Close stdin as we're not writing to it
+        fclose($pipes[0]);
+        
+        // Stream the output directly to the client
+        while (!feof($pipes[1])) {
+            $chunk = fread($pipes[1], 8192);
+            if ($chunk !== false && $chunk !== '') {
+                echo $chunk;
+                ob_flush();
+                flush();
+            }
+        }
+        
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+    } else {
+        http_response_code(500);
+        echo "Failed to create archive";
+    }
+    
+    exit;
+});
 
 // Settings routes
 $router->addRoute('GET', '/settings', function () {
