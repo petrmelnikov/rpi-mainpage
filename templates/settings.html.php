@@ -12,6 +12,11 @@
                     Top Menu Settings
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="file-index-tab" data-bs-toggle="tab" data-bs-target="#file-index" type="button" role="tab" aria-controls="file-index" aria-selected="false">
+                    File Index Settings
+                </button>
+            </li>
         </ul>
         
         <!-- Tab content -->
@@ -66,6 +71,100 @@
                             <?php endif; ?>
                         </tbody>
                     </table>
+                </div>
+            </div>
+            
+            <!-- File Index Settings Tab -->
+            <div class="tab-pane fade" id="file-index" role="tabpanel" aria-labelledby="file-index-tab">
+                <?php if (isset($message)): ?>
+                    <div class="alert alert-<?= $messageType ?> alert-dismissible fade show" role="alert">
+                        <?= htmlspecialchars($message) ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <?php endif; ?>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="card-title mb-0">File Index Configuration</h4>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="/settings/file-index/update">
+                            <div class="mb-3">
+                                <label for="catalogPath" class="form-label">Catalog Path</label>
+                                <input type="text" class="form-control" id="catalogPath" name="catalogPath" 
+                                       value="<?= htmlspecialchars($catalogPath ?? '') ?>" required>
+                                <div class="form-text">
+                                    Enter the full path to the directory you want to index in the File Index page.
+                                    The path must be readable by the web server.
+                                </div>
+                                <div class="mt-2">
+                                    <small class="text-muted">Common paths:</small>
+                                    <div class="btn-group-sm mt-1" role="group">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/Documents'">~/Documents</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/Downloads'">~/Downloads</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/Users/user/projects'">~/projects</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('catalogPath').value='/home/pi/Documents'">/home/pi/Documents</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                                <a href="/file-index" class="btn btn-outline-secondary">View File Index</a>
+                            </div>
+                        </form>
+                        
+                        <hr class="my-4">
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Current Settings</h6>
+                                <table class="table table-sm">
+                                    <tr>
+                                        <td><strong>Catalog Path:</strong></td>
+                                        <td><code><?= htmlspecialchars($catalogPath ?? 'Not set') ?></code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Path Status:</strong></td>
+                                        <td>
+                                            <?php 
+                                            $pathStatus = 'Unknown';
+                                            $pathClass = 'text-muted';
+                                            if (isset($catalogPath) && !empty($catalogPath)) {
+                                                if (file_exists($catalogPath)) {
+                                                    if (is_dir($catalogPath)) {
+                                                        if (is_readable($catalogPath)) {
+                                                            $pathStatus = 'Valid';
+                                                            $pathClass = 'text-success';
+                                                        } else {
+                                                            $pathStatus = 'Not readable';
+                                                            $pathClass = 'text-warning';
+                                                        }
+                                                    } else {
+                                                        $pathStatus = 'Not a directory';
+                                                        $pathClass = 'text-danger';
+                                                    }
+                                                } else {
+                                                    $pathStatus = 'Does not exist';
+                                                    $pathClass = 'text-danger';
+                                                }
+                                            }
+                                            ?>
+                                            <span class="<?= $pathClass ?>"><?= $pathStatus ?></span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Tips</h6>
+                                <ul class="small text-muted">
+                                    <li>Use absolute paths (e.g., /home/user/documents)</li>
+                                    <li>Ensure the web server has read permissions</li>
+                                    <li>Large directories may take time to load</li>
+                                    <li>The file index is limited to 1000 items for performance</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

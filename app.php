@@ -6,14 +6,11 @@ use App\ShellCommandExecutor;
 use App\TemplateRenderer;
 use App\MenuBuilder;
 use App\MenuManager;
+use App\FileIndexManager;
 use App\App;
 
 $app = App::getInstance();
 $app->appRoot = __DIR__;
-
-// Configuration - File Index Catalog Path
-// Change this constant to point to the directory you want to index
-define('FILE_INDEX_CATALOG_PATH', '/Users/user/Documents');
 
 $topMainMenu = (new MenuBuilder())->buildMenuArray();
 
@@ -40,8 +37,9 @@ $router->addRoute('GET', '/update-code', function () {
 }, $app->appRoot . '/templates/shell_command_raw_content.html.php');
 
 $router->addRoute('GET', '/file-index', function () {
-    // Use the hardcoded catalog path constant
-    $catalogPath = FILE_INDEX_CATALOG_PATH;
+    // Use the configurable catalog path from settings
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $fileIndexManager->getCatalogPath();
     
     $files = [];
     $errors = [];
@@ -111,10 +109,13 @@ $router->addRoute('GET', '/file-index', function () {
 // Settings routes
 $router->addRoute('GET', '/settings', function () {
     $menuManager = new MenuManager();
+    $fileIndexManager = new FileIndexManager();
     $menuItems = $menuManager->getMenuItems();
+    $catalogPath = $fileIndexManager->getCatalogPath();
     
     $result = [
-        'menuItems' => $menuItems
+        'menuItems' => $menuItems,
+        'catalogPath' => $catalogPath
     ];
     
     // Handle messages from redirects
@@ -176,6 +177,25 @@ $router->addRoute('POST', '/settings/top-menu/delete', function () {
         header('Location: /settings?message=' . urlencode('Menu item deleted successfully') . '&type=success');
     } else {
         header('Location: /settings?message=' . urlencode('Failed to delete menu item. Invalid index.') . '&type=danger');
+    }
+    exit;
+});
+
+$router->addRoute('POST', '/settings/file-index/update', function () {
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $_POST['catalogPath'] ?? '';
+    
+    $errors = $fileIndexManager->validatePath($catalogPath);
+    
+    if (empty($errors)) {
+        $success = $fileIndexManager->setCatalogPath($catalogPath);
+        if ($success) {
+            header('Location: /settings?message=' . urlencode('File index path updated successfully') . '&type=success');
+        } else {
+            header('Location: /settings?message=' . urlencode('Failed to update file index path.') . '&type=danger');
+        }
+    } else {
+        header('Location: /settings?message=' . urlencode(implode(', ', $errors)) . '&type=danger');
     }
     exit;
 });
