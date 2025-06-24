@@ -36,6 +36,18 @@ $router->addRoute('GET', '/update-code', function () {
     )];
 }, $app->appRoot . '/templates/shell_command_raw_content.html.php');
 
+$router->addRoute('GET', '/tools', function () {
+    return [];
+}, $app->appRoot . '/templates/tools.html.php');
+
+$router->addRoute('GET', '/tools/example1', function () {
+    return [];
+}, $app->appRoot . '/templates/example1.html.php');
+
+$router->addRoute('GET', '/tools/example2', function () {
+    return [];
+}, $app->appRoot . '/templates/example2.html.php');
+
 $router->addRoute('GET', '/file-index', function () {
     // Use the configurable catalog path from settings
     $fileIndexManager = new FileIndexManager();

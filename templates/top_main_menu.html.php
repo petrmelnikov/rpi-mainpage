@@ -17,5 +17,6 @@
         <a class="btn btn-primary" href="/">index</a>
         <a class="btn btn-primary" href="/top">top</a>
         <a class="btn btn-primary" href="/file-index">file index</a>
+        <a class="btn btn-primary" href="/tools">tools</a>
     </div>
 </div>
