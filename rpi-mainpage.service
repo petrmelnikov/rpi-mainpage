@@ -1,0 +1,27 @@
+[Unit]
+Description=RPI Mainpage PHP Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+User=root
+Group=root
+WorkingDirectory=/opt/rpi-mainpage
+ExecStart=/opt/rpi-mainpage/start_server.sh
+ExecStop=/opt/rpi-mainpage/stop_server.sh
+PIDFile=/var/run/rpi-mainpage.pid
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/rpi-mainpage.log
+StandardError=append:/var/log/rpi-mainpage.log
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log /var/run /opt/rpi-mainpage
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
