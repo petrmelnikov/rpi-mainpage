@@ -18,7 +18,7 @@ $router = new Router();
 
 $router->addRoute('GET', '', function () {
     return ['shellCommandRawContent' => array_merge(
-        ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo'),
+        ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo 2>&1'),
         ShellCommandExecutor::executeWithSplitByLines("df -h | grep 'usb' 2>&1")
     )];
 }, $app->appRoot . '/templates/shell_command_raw_content.html.php');
