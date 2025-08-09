@@ -4,7 +4,8 @@
 # This script starts the PHP built-in server for the RPI mainpage application
 
 # Configuration
-APP_DIR="/opt/rpi-mainpage"  # Change this to your actual app directory
+## Resolve app directory to the location of this script so we can run in-place
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 PHP_PORT=80
 PHP_HOST="0.0.0.0"
 LOG_FILE="/var/log/rpi-mainpage.log"
@@ -62,7 +63,7 @@ fi
 # Change to app directory
 if [ ! -d "$APP_DIR" ]; then
     print_error "App directory $APP_DIR does not exist!"
-    print_status "Please update APP_DIR in this script to point to your app location"
+    print_status "Please ensure the script location is correct"
     exit 1
 fi
 

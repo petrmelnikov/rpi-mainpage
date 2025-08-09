@@ -7,9 +7,9 @@ Wants=network.target
 Type=forking
 User=root
 Group=root
-WorkingDirectory=/opt/rpi-mainpage
-ExecStart=/opt/rpi-mainpage/start_server.sh
-ExecStop=/opt/rpi-mainpage/stop_server.sh
+WorkingDirectory=/path/to/rpi-mainpage
+ExecStart=/path/to/rpi-mainpage/start_server.sh
+ExecStop=/path/to/rpi-mainpage/stop_server.sh
 PIDFile=/var/run/rpi-mainpage.pid
 Restart=always
 RestartSec=10
@@ -20,7 +20,7 @@ StandardError=append:/var/log/rpi-mainpage.log
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/log /var/run /opt/rpi-mainpage
+ReadWritePaths=/var/log /var/run /path/to/rpi-mainpage
 ProtectHome=yes
 
 [Install]

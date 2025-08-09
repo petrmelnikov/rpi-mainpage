@@ -5,9 +5,9 @@
 
 # Configuration
 APP_NAME="rpi-mainpage"
-APP_DIR="/opt/$APP_NAME"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 SERVICE_FILE="$APP_NAME.service"
-CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CURRENT_DIR="$REPO_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -54,26 +54,15 @@ if ! command -v php &> /dev/null; then
     print_status "PHP installed successfully"
 fi
 
-# Create application directory
-print_status "Creating application directory at $APP_DIR"
-mkdir -p "$APP_DIR"
-
-# Copy application files
-print_status "Copying application files..."
-cp -r "$CURRENT_DIR"/* "$APP_DIR/" 2>/dev/null || true
-
-# Make scripts executable
-chmod +x "$APP_DIR/start_server.sh"
-chmod +x "$APP_DIR/stop_server.sh"
-chmod +x "$APP_DIR/install.sh"
-
-# Update APP_DIR in start_server.sh
-sed -i "s|APP_DIR=\".*\"|APP_DIR=\"$APP_DIR\"|g" "$APP_DIR/start_server.sh"
+print_status "Using repository directory: $REPO_DIR"
+chmod +x "$REPO_DIR/start_server.sh" || true
+chmod +x "$REPO_DIR/stop_server.sh" || true
+chmod +x "$REPO_DIR/install.sh" || true
 
 # Install composer dependencies if composer is available
 if command -v composer &> /dev/null; then
     print_status "Installing composer dependencies..."
-    cd "$APP_DIR"
+    cd "$REPO_DIR"
     composer install --no-dev --optimize-autoloader
 else
     print_warning "Composer not found. If you need to install dependencies, install composer first:"
@@ -83,7 +72,36 @@ fi
 
 # Install systemd service
 print_status "Installing systemd service..."
-cp "$APP_DIR/$SERVICE_FILE" "/etc/systemd/system/"
+TARGET_SERVICE="/etc/systemd/system/$SERVICE_FILE"
+cat > "$TARGET_SERVICE" <<EOF
+[Unit]
+Description=RPI Mainpage PHP Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+User=root
+Group=root
+WorkingDirectory=$REPO_DIR
+ExecStart=$REPO_DIR/start_server.sh
+ExecStop=$REPO_DIR/stop_server.sh
+PIDFile=/var/run/rpi-mainpage.pid
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/rpi-mainpage.log
+StandardError=append:/var/log/rpi-mainpage.log
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log /var/run $REPO_DIR
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # Reload systemd
 systemctl daemon-reload
@@ -93,11 +111,10 @@ print_status "Enabling service for autostart..."
 systemctl enable "$APP_NAME.service"
 
 # Set proper permissions
-chown -R root:root "$APP_DIR"
-chmod 644 "/etc/systemd/system/$SERVICE_FILE"
+chmod 644 "$TARGET_SERVICE"
 
 print_header "Installation Complete"
-print_status "Application installed to: $APP_DIR"
+print_status "Application directory: $REPO_DIR"
 print_status "Service file installed to: /etc/systemd/system/$SERVICE_FILE"
 print_status "Service enabled for autostart: $APP_NAME.service"
 
