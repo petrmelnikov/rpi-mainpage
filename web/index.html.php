@@ -34,12 +34,13 @@
                 top: 0;
                 bottom: 80px; /* Above controls */
                 width: 35%;
-                z-index: 50; /* Above Plyr overlay */
+                z-index: 2000; /* High z-index to ensure it's above everything */
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 pointer-events: auto;
+                background: rgba(0,0,0,0); /* Transparent background to ensure click capture */
             }
             .seek-zone-left {
                 left: 0;

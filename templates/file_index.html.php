@@ -347,7 +347,11 @@ function showDownloadProgress(button) {
     
     // Setup seek zones with double-tap detection
     function setupSeekZones() {
-        const plyrContainer = document.querySelector('.plyr');
+        // Use player.elements.container if available, otherwise fallback
+        const plyrContainer = player && player.elements && player.elements.container 
+            ? player.elements.container 
+            : document.querySelector('.plyr');
+            
         if (!plyrContainer || seekZonesInitialized) return;
         
         // Insert seek zones into Plyr container
@@ -366,6 +370,8 @@ function showDownloadProgress(button) {
             const DOUBLE_TAP_DELAY = 300;
             
             function handleTap(e) {
+                // Always prevent default and propagation for taps on seek zones
+                // This ensures Plyr doesn't see them as clicks on the video
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
@@ -402,15 +408,22 @@ function showDownloadProgress(button) {
         if (seekZoneRight) setupDoubleTap(seekZoneRight, SEEK_TIME, seekIndicatorRight);
         
         // Disable Plyr's double-click fullscreen on the video/poster area
-        const plyrVideo = plyrContainer.querySelector('.plyr__video-wrapper');
-        if (plyrVideo) {
-            plyrVideo.addEventListener('dblclick', function(e) {
-                // Only prevent if not on seek zones (center area)
-                if (!e.target.closest('.seek-zone')) {
-                    e.stopPropagation();
-                }
-            }, true);
-        }
+        // We attach to the container to catch it early in capture phase
+        plyrContainer.addEventListener('dblclick', function(e) {
+            // If the target is NOT a seek zone, we might want to allow fullscreen (center tap)
+            // But if it IS a seek zone, we must stop it.
+            // Since seek zones stop propagation themselves, this listener is a safety net
+            // for the center area if we want to disable fullscreen there too.
+            // However, user wants center double tap to toggle fullscreen (or at least didn't complain about it in window mode).
+            // The issue is left/right double tap triggering fullscreen.
+            
+            // If the event originated from a seek zone, stop it.
+            if (e.target.closest('.seek-zone')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }
+        }, true);
     }
     
     // Initialize Plyr when modal opens
