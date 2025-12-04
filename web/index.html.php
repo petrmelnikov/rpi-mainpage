@@ -29,8 +29,8 @@
             .seek-zone {
                 position: absolute;
                 top: 0;
+                bottom: 60px;
                 width: 30%;
-                height: 100%;
                 z-index: 10;
                 cursor: pointer;
                 display: flex;
