@@ -111,6 +111,6 @@ class FileIndexManager
     private function saveConfig(array $config): bool
     {
         $json = json_encode($config, JSON_PRETTY_PRINT);
-        return file_put_contents($this->configPath, $json) !== false;
+        return file_put_contents($this->configPath, $json, LOCK_EX) !== false;
     }
 }

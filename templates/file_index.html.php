@@ -174,15 +174,7 @@
                                 </td>
                                 <td>
                                     <?php if ($file['isDir']): ?>
-                                        <?php
-                                        $isPinned = false;
-                                        foreach ($pinnedDirectories as $pinnedDir) {
-                                            if ($pinnedDir['path'] === $file['path']) {
-                                                $isPinned = true;
-                                                break;
-                                            }
-                                        }
-                                        ?>
+                                        <?php $isPinned = isset($pinnedPaths[$file['path']]); ?>
                                         <?php if ($isPinned): ?>
                                             <form action="/file-index/unpin" method="POST" class="d-inline me-1">
                                                 <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">

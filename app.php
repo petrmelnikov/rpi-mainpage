@@ -124,6 +124,8 @@ $router->addRoute('GET', '/file-index', function () {
         $errors[] = "Directory does not exist or is not accessible: " . $currentFullPath;
     }
     
+    $pinnedDirectories = $fileIndexManager->getPinnedDirectories();
+    
     return [
         'catalogPath' => $catalogPath,
         'currentPath' => $currentPath,
@@ -133,7 +135,8 @@ $router->addRoute('GET', '/file-index', function () {
         'errors' => $errors,
         'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
         'totalDirs' => count(array_filter($files, fn($f) => $f['isDir'])),
-        'pinnedDirectories' => $fileIndexManager->getPinnedDirectories()
+        'pinnedDirectories' => $pinnedDirectories,
+        'pinnedPaths' => array_column($pinnedDirectories, null, 'path')
     ];
 }, $app->appRoot . '/templates/file_index.html.php');
 
@@ -145,7 +148,15 @@ $router->addRoute('POST', '/file-index/pin', function () {
     $returnPath = $_POST['returnPath'] ?? '';
     
     if (!empty($path) && !empty($name)) {
-        $fileIndexManager->addPinnedDirectory($path, $name);
+        // Validate that directory exists before pinning
+        $catalogPath = $fileIndexManager->getCatalogPath();
+        // Prevent directory traversal
+        $cleanPath = str_replace(['../', '.\\', '..\\'], '', $path);
+        $fullPath = rtrim($catalogPath, '/') . '/' . $cleanPath;
+        
+        if (is_dir($fullPath)) {
+            $fileIndexManager->addPinnedDirectory($cleanPath, $name);
+        }
     }
     
     $redirectUrl = '/file-index';
