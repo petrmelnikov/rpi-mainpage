@@ -46,6 +46,56 @@ class FileIndexManager
         return $errors;
     }
 
+    public function getPinnedDirectories(): array
+    {
+        $config = $this->getConfig();
+        return $config['pinnedDirectories'] ?? [];
+    }
+
+    public function addPinnedDirectory(string $path, string $name): bool
+    {
+        $config = $this->getConfig();
+        $pinnedDirs = $config['pinnedDirectories'] ?? [];
+        
+        // Check if already pinned
+        foreach ($pinnedDirs as $dir) {
+            if ($dir['path'] === $path) {
+                return false; // Already pinned
+            }
+        }
+        
+        $pinnedDirs[] = [
+            'path' => $path,
+            'name' => $name
+        ];
+        
+        $config['pinnedDirectories'] = $pinnedDirs;
+        return $this->saveConfig($config);
+    }
+
+    public function removePinnedDirectory(string $path): bool
+    {
+        $config = $this->getConfig();
+        $pinnedDirs = $config['pinnedDirectories'] ?? [];
+        
+        $config['pinnedDirectories'] = array_values(array_filter($pinnedDirs, function($dir) use ($path) {
+            return $dir['path'] !== $path;
+        }));
+        
+        return $this->saveConfig($config);
+    }
+
+    public function isDirectoryPinned(string $path): bool
+    {
+        $pinnedDirs = $this->getPinnedDirectories();
+        foreach ($pinnedDirs as $dir) {
+            if ($dir['path'] === $path) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function getConfig(): array
     {
         if (!file_exists($this->configPath)) {

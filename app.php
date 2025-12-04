@@ -132,9 +132,47 @@ $router->addRoute('GET', '/file-index', function () {
         'files' => $files,
         'errors' => $errors,
         'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
-        'totalDirs' => count(array_filter($files, fn($f) => $f['isDir']))
+        'totalDirs' => count(array_filter($files, fn($f) => $f['isDir'])),
+        'pinnedDirectories' => $fileIndexManager->getPinnedDirectories()
     ];
 }, $app->appRoot . '/templates/file_index.html.php');
+
+// Pin directory route
+$router->addRoute('POST', '/file-index/pin', function () {
+    $fileIndexManager = new FileIndexManager();
+    $path = $_POST['path'] ?? '';
+    $name = $_POST['name'] ?? '';
+    $returnPath = $_POST['returnPath'] ?? '';
+    
+    if (!empty($path) && !empty($name)) {
+        $fileIndexManager->addPinnedDirectory($path, $name);
+    }
+    
+    $redirectUrl = '/file-index';
+    if (!empty($returnPath)) {
+        $redirectUrl .= '?path=' . urlencode($returnPath);
+    }
+    header('Location: ' . $redirectUrl);
+    exit;
+});
+
+// Unpin directory route
+$router->addRoute('POST', '/file-index/unpin', function () {
+    $fileIndexManager = new FileIndexManager();
+    $path = $_POST['path'] ?? '';
+    $returnPath = $_POST['returnPath'] ?? '';
+    
+    if (!empty($path)) {
+        $fileIndexManager->removePinnedDirectory($path);
+    }
+    
+    $redirectUrl = '/file-index';
+    if (!empty($returnPath)) {
+        $redirectUrl .= '?path=' . urlencode($returnPath);
+    }
+    header('Location: ' . $redirectUrl);
+    exit;
+});
 
 $router->addRoute('GET', '/file-index/download', function () {
     $fileIndexManager = new FileIndexManager();

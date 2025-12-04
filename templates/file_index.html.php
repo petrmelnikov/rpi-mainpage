@@ -53,6 +53,33 @@
             Current Path: <code><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
         </p>
         
+        <?php if (!empty($pinnedDirectories)): ?>
+            <div class="card mb-3 border-warning">
+                <div class="card-header bg-warning bg-opacity-25">
+                    <strong>📌 Pinned Directories</strong>
+                </div>
+                <div class="card-body p-2">
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php foreach ($pinnedDirectories as $pinnedDir): ?>
+                            <div class="btn-group" role="group">
+                                <a href="/file-index?path=<?= urlencode($pinnedDir['path']) ?>" 
+                                   class="btn btn-outline-warning btn-sm">
+                                    📁 <?= htmlspecialchars($pinnedDir['name']) ?>
+                                </a>
+                                <form action="/file-index/unpin" method="POST" class="d-inline">
+                                    <input type="hidden" name="path" value="<?= htmlspecialchars($pinnedDir['path']) ?>">
+                                    <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm" title="Unpin directory">
+                                        ✕
+                                    </button>
+                                </form>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <?php if (!empty($errors)): ?>
             <div class="alert alert-danger">
                 <h5>Errors:</h5>
@@ -147,6 +174,33 @@
                                 </td>
                                 <td>
                                     <?php if ($file['isDir']): ?>
+                                        <?php
+                                        $isPinned = false;
+                                        foreach ($pinnedDirectories as $pinnedDir) {
+                                            if ($pinnedDir['path'] === $file['path']) {
+                                                $isPinned = true;
+                                                break;
+                                            }
+                                        }
+                                        ?>
+                                        <?php if ($isPinned): ?>
+                                            <form action="/file-index/unpin" method="POST" class="d-inline me-1">
+                                                <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
+                                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                                <button type="submit" class="btn btn-sm btn-warning" title="Unpin directory">
+                                                    📌 Pinned
+                                                </button>
+                                            </form>
+                                        <?php else: ?>
+                                            <form action="/file-index/pin" method="POST" class="d-inline me-1">
+                                                <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
+                                                <input type="hidden" name="name" value="<?= htmlspecialchars($file['name']) ?>">
+                                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Pin directory">
+                                                    📌 Pin
+                                                </button>
+                                            </form>
+                                        <?php endif; ?>
                                         <a href="/file-index/download?path=<?= urlencode($file['path']) ?>" 
                                            class="btn btn-sm btn-outline-primary download-btn" 
                                            title="Download directory as .tar.gz archive"
