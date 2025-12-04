@@ -22,6 +22,66 @@
             .btn-play-video {
                 cursor: pointer;
             }
+            /* Double-tap seek zones */
+            .video-container {
+                position: relative;
+            }
+            .seek-zone {
+                position: absolute;
+                top: 0;
+                width: 30%;
+                height: 100%;
+                z-index: 10;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                pointer-events: auto;
+            }
+            .seek-zone-left {
+                left: 0;
+            }
+            .seek-zone-right {
+                right: 0;
+            }
+            .seek-indicator {
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                color: white;
+                text-shadow: 0 0 10px rgba(0,0,0,0.8);
+                animation: seekPulse 0.3s ease-out;
+                pointer-events: none;
+            }
+            .seek-indicator.show {
+                display: flex;
+            }
+            .seek-indicator svg {
+                width: 40px;
+                height: 40px;
+                fill: white;
+            }
+            .seek-indicator span {
+                font-size: 14px;
+                font-weight: bold;
+                margin-top: 5px;
+            }
+            @keyframes seekPulse {
+                0% { transform: scale(0.8); opacity: 0; }
+                50% { transform: scale(1.2); opacity: 1; }
+                100% { transform: scale(1); opacity: 1; }
+            }
+            .seek-ripple {
+                position: absolute;
+                border-radius: 50%;
+                background: rgba(255,255,255,0.3);
+                transform: scale(0);
+                animation: ripple 0.4s ease-out;
+                pointer-events: none;
+            }
+            @keyframes ripple {
+                to { transform: scale(4); opacity: 0; }
+            }
         </style>
     </head>
     <body>
