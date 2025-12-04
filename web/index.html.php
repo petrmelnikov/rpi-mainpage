@@ -26,12 +26,15 @@
             .video-container {
                 position: relative;
             }
+            .plyr {
+                position: relative;
+            }
             .seek-zone {
                 position: absolute;
                 top: 0;
-                bottom: 60px;
-                width: 30%;
-                z-index: 10;
+                bottom: 80px; /* Above controls */
+                width: 35%;
+                z-index: 50; /* Above Plyr overlay */
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -40,9 +43,11 @@
             }
             .seek-zone-left {
                 left: 0;
+                border-radius: 0 50% 50% 0;
             }
             .seek-zone-right {
                 right: 0;
+                border-radius: 50% 0 0 50%;
             }
             .seek-indicator {
                 display: none;

@@ -267,19 +267,6 @@ function showDownloadProgress(button) {
                         <source id="videoSource" src="" type="video/mp4">
                         Your browser does not support HTML5 video.
                     </video>
-                    <!-- Double-tap seek zones -->
-                    <div class="seek-zone seek-zone-left" id="seekZoneLeft">
-                        <div class="seek-indicator" id="seekIndicatorLeft">
-                            <svg viewBox="0 0 24 24"><path d="M12.5 3C17.15 3 21.08 6.03 22.47 10.22L20.1 11C19.05 7.81 16.04 5.5 12.5 5.5C10.54 5.5 8.77 6.22 7.38 7.38L10 10H3V3L5.6 5.6C7.45 4 9.85 3 12.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
-                            <span>10s</span>
-                        </div>
-                    </div>
-                    <div class="seek-zone seek-zone-right" id="seekZoneRight">
-                        <div class="seek-indicator" id="seekIndicatorRight">
-                            <svg viewBox="0 0 24 24"><path d="M11.5 3C6.85 3 2.92 6.03 1.53 10.22L3.9 11C4.95 7.81 7.96 5.5 11.5 5.5C13.46 5.5 15.23 6.22 16.62 7.38L14 10H21V3L18.4 5.6C16.55 4 14.15 3 11.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
-                            <span>10s</span>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -289,10 +276,12 @@ function showDownloadProgress(button) {
 <script>
 (function() {
     let player = null;
+    let seekZonesInitialized = false;
     const videoModal = document.getElementById('videoPlayerModal');
     const videoElement = document.getElementById('videoPlayer');
     const videoSource = document.getElementById('videoSource');
     const modalTitle = document.getElementById('videoPlayerModalLabel');
+    const SEEK_TIME = 10; // seconds
     
     // Video MIME types mapping
     const mimeTypes = {
@@ -305,71 +294,22 @@ function showDownloadProgress(button) {
         'avi': 'video/x-msvideo'
     };
     
-    // Seek zones
-    const seekZoneLeft = document.getElementById('seekZoneLeft');
-    const seekZoneRight = document.getElementById('seekZoneRight');
-    const seekIndicatorLeft = document.getElementById('seekIndicatorLeft');
-    const seekIndicatorRight = document.getElementById('seekIndicatorRight');
-    const SEEK_TIME = 10; // seconds
-    
-    // Double-tap detection
-    function createDoubleTapHandler(element, callback) {
-        let lastTap = 0;
-        let tapTimeout = null;
-        const DOUBLE_TAP_DELAY = 300; // ms
-        
-        // Prevent default double-click behavior (fullscreen toggle)
-        element.addEventListener('dblclick', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-        }, true);
-        
-        element.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            
-            clearTimeout(tapTimeout);
-            
-            if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
-                // Double tap detected
-                callback(e);
-                lastTap = 0;
-            } else {
-                // Single tap - wait to see if it becomes double
-                lastTap = currentTime;
-                tapTimeout = setTimeout(function() {
-                    lastTap = 0;
-                }, DOUBLE_TAP_DELAY);
-            }
-        }, true);
-        
-        // Also handle touch events for mobile
-        element.addEventListener('touchend', function(e) {
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            
-            clearTimeout(tapTimeout);
-            
-            if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
-                // Double tap detected
-                e.preventDefault();
-                callback(e);
-                lastTap = 0;
-            } else {
-                lastTap = currentTime;
-                tapTimeout = setTimeout(function() {
-                    lastTap = 0;
-                }, DOUBLE_TAP_DELAY);
-            }
-        }, true);
+    // Create seek zone HTML
+    function createSeekZonesHTML() {
+        return `
+            <div class="seek-zone seek-zone-left" id="seekZoneLeft">
+                <div class="seek-indicator" id="seekIndicatorLeft">
+                    <svg viewBox="0 0 24 24"><path d="M12.5 3C17.15 3 21.08 6.03 22.47 10.22L20.1 11C19.05 7.81 16.04 5.5 12.5 5.5C10.54 5.5 8.77 6.22 7.38 7.38L10 10H3V3L5.6 5.6C7.45 4 9.85 3 12.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
+                    <span>10s</span>
+                </div>
+            </div>
+            <div class="seek-zone seek-zone-right" id="seekZoneRight">
+                <div class="seek-indicator" id="seekIndicatorRight">
+                    <svg viewBox="0 0 24 24"><path d="M11.5 3C6.85 3 2.92 6.03 1.53 10.22L3.9 11C4.95 7.81 7.96 5.5 11.5 5.5C13.46 5.5 15.23 6.22 16.62 7.38L14 10H21V3L18.4 5.6C16.55 4 14.15 3 11.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
+                    <span>10s</span>
+                </div>
+            </div>
+        `;
     }
     
     // Show ripple effect
@@ -397,31 +337,80 @@ function showDownloadProgress(button) {
         setTimeout(() => indicator.classList.remove('show'), 500);
     }
     
-    // Seek backward (left zone)
-    if (seekZoneLeft) {
-        createDoubleTapHandler(seekZoneLeft, function(e) {
-            if (player) {
-                player.currentTime = Math.max(0, player.currentTime - SEEK_TIME);
-            } else {
-                videoElement.currentTime = Math.max(0, videoElement.currentTime - SEEK_TIME);
-            }
-            showRipple(seekZoneLeft, e);
-            showSeekIndicator(seekIndicatorLeft);
-        });
+    // Seek video
+    function seekVideo(seconds) {
+        if (player) {
+            const newTime = player.currentTime + seconds;
+            player.currentTime = Math.max(0, Math.min(player.duration || Infinity, newTime));
+        }
     }
     
-    // Seek forward (right zone)
-    if (seekZoneRight) {
-        createDoubleTapHandler(seekZoneRight, function(e) {
-            const duration = player ? player.duration : videoElement.duration;
-            if (player) {
-                player.currentTime = Math.min(duration, player.currentTime + SEEK_TIME);
-            } else {
-                videoElement.currentTime = Math.min(duration, videoElement.currentTime + SEEK_TIME);
+    // Setup seek zones with double-tap detection
+    function setupSeekZones() {
+        const plyrContainer = document.querySelector('.plyr');
+        if (!plyrContainer || seekZonesInitialized) return;
+        
+        // Insert seek zones into Plyr container
+        plyrContainer.insertAdjacentHTML('beforeend', createSeekZonesHTML());
+        seekZonesInitialized = true;
+        
+        const seekZoneLeft = document.getElementById('seekZoneLeft');
+        const seekZoneRight = document.getElementById('seekZoneRight');
+        const seekIndicatorLeft = document.getElementById('seekIndicatorLeft');
+        const seekIndicatorRight = document.getElementById('seekIndicatorRight');
+        
+        // Double-tap handler factory
+        function setupDoubleTap(element, seekSeconds, indicator) {
+            let lastTap = 0;
+            let tapTimeout = null;
+            const DOUBLE_TAP_DELAY = 300;
+            
+            function handleTap(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                const now = Date.now();
+                const timeDiff = now - lastTap;
+                
+                clearTimeout(tapTimeout);
+                
+                if (timeDiff < DOUBLE_TAP_DELAY && timeDiff > 0) {
+                    // Double tap - seek
+                    seekVideo(seekSeconds);
+                    showRipple(element, e);
+                    showSeekIndicator(indicator);
+                    lastTap = 0;
+                } else {
+                    // First tap - wait for potential second tap
+                    lastTap = now;
+                    tapTimeout = setTimeout(() => { lastTap = 0; }, DOUBLE_TAP_DELAY);
+                }
             }
-            showRipple(seekZoneRight, e);
-            showSeekIndicator(seekIndicatorRight);
-        });
+            
+            // Capture phase to intercept before Plyr
+            element.addEventListener('click', handleTap, true);
+            element.addEventListener('touchend', handleTap, true);
+            element.addEventListener('dblclick', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }, true);
+        }
+        
+        if (seekZoneLeft) setupDoubleTap(seekZoneLeft, -SEEK_TIME, seekIndicatorLeft);
+        if (seekZoneRight) setupDoubleTap(seekZoneRight, SEEK_TIME, seekIndicatorRight);
+        
+        // Disable Plyr's double-click fullscreen on the video/poster area
+        const plyrVideo = plyrContainer.querySelector('.plyr__video-wrapper');
+        if (plyrVideo) {
+            plyrVideo.addEventListener('dblclick', function(e) {
+                // Only prevent if not on seek zones (center area)
+                if (!e.target.closest('.seek-zone')) {
+                    e.stopPropagation();
+                }
+            }, true);
+        }
     }
     
     // Initialize Plyr when modal opens
@@ -444,7 +433,14 @@ function showDownloadProgress(button) {
                     settings: ['quality', 'speed'],
                     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
                     keyboard: { focused: true, global: true },
-                    seekTime: SEEK_TIME
+                    seekTime: SEEK_TIME,
+                    clickToPlay: true,
+                    disableContextMenu: false
+                });
+                
+                // Setup seek zones after Plyr initializes
+                player.on('ready', function() {
+                    setupSeekZones();
                 });
             }
             if (player) {
