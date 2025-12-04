@@ -221,6 +221,129 @@ $router->addRoute('GET', '/file-index/download', function () {
     exit;
 });
 
+// Video streaming route (supports range requests for seeking)
+$router->addRoute('GET', '/file-index/stream', function () {
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $fileIndexManager->getCatalogPath();
+    $relativePath = $_GET['path'] ?? '';
+    
+    // Sanitize and validate the requested path
+    $relativePath = trim($relativePath, '/');
+    $fullPath = $catalogPath;
+    
+    if (!empty($relativePath)) {
+        // Prevent directory traversal attacks
+        $relativePath = str_replace(['../', '.\\', '..\\'], '', $relativePath);
+        $fullPath = rtrim($catalogPath, '/') . '/' . $relativePath;
+    }
+    
+    // Validate the path
+    if (!file_exists($fullPath)) {
+        http_response_code(404);
+        echo "File not found";
+        exit;
+    }
+    
+    if (!is_file($fullPath)) {
+        http_response_code(400);
+        echo "Path is not a file";
+        exit;
+    }
+    
+    if (!is_readable($fullPath)) {
+        http_response_code(403);
+        echo "File not readable";
+        exit;
+    }
+    
+    // Check if it's a video file
+    $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+    $videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v'];
+    
+    if (!in_array($extension, $videoExtensions)) {
+        http_response_code(400);
+        echo "Not a supported video file";
+        exit;
+    }
+    
+    // Get file information
+    $fileSize = filesize($fullPath);
+    
+    // Determine MIME type
+    $mimeTypes = [
+        'mp4' => 'video/mp4',
+        'm4v' => 'video/mp4',
+        'webm' => 'video/webm',
+        'ogg' => 'video/ogg',
+        'mov' => 'video/quicktime',
+        'mkv' => 'video/x-matroska',
+        'avi' => 'video/x-msvideo'
+    ];
+    $mimeType = $mimeTypes[$extension] ?? 'video/mp4';
+    
+    // Handle range requests for video seeking
+    $start = 0;
+    $end = $fileSize - 1;
+    
+    if (isset($_SERVER['HTTP_RANGE'])) {
+        // Parse range header
+        if (preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+            $start = $matches[1] !== '' ? intval($matches[1]) : 0;
+            $end = $matches[2] !== '' ? intval($matches[2]) : $fileSize - 1;
+            
+            // Validate range
+            if ($start > $end || $start >= $fileSize) {
+                http_response_code(416); // Range Not Satisfiable
+                header("Content-Range: bytes */$fileSize");
+                exit;
+            }
+            
+            $end = min($end, $fileSize - 1);
+            
+            // Send partial content response
+            http_response_code(206);
+            header("Content-Range: bytes $start-$end/$fileSize");
+        }
+    }
+    
+    $length = $end - $start + 1;
+    
+    // Set headers
+    header('Content-Type: ' . $mimeType);
+    header('Accept-Ranges: bytes');
+    header('Content-Length: ' . $length);
+    header('Cache-Control: public, max-age=3600');
+    
+    // Prevent download, allow inline playback
+    header('Content-Disposition: inline');
+    
+    // Stream the file
+    $handle = fopen($fullPath, 'rb');
+    if ($handle) {
+        if ($start > 0) {
+            fseek($handle, $start);
+        }
+        
+        $remaining = $length;
+        while (!feof($handle) && $remaining > 0) {
+            $chunkSize = min(8192, $remaining);
+            $chunk = fread($handle, $chunkSize);
+            if ($chunk !== false) {
+                echo $chunk;
+                $remaining -= strlen($chunk);
+                ob_flush();
+                flush();
+            }
+        }
+        fclose($handle);
+    } else {
+        http_response_code(500);
+        echo "Failed to read file";
+    }
+    
+    exit;
+});
+
 // File download route (individual files, not compressed)
 $router->addRoute('GET', '/file-index/download/file', function () {
     $fileIndexManager = new FileIndexManager();

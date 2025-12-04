@@ -154,6 +154,19 @@
                                             📦 Archive
                                         </a>
                                     <?php else: ?>
+                                        <?php
+                                        $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                                        $isPlayableVideo = in_array($fileExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        ?>
+                                        <?php if ($isPlayableVideo): ?>
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-success btn-play-video me-1"
+                                                    data-video-path="<?= htmlspecialchars($file['path']) ?>"
+                                                    data-video-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    title="Play video">
+                                                ▶️ Play
+                                            </button>
+                                        <?php endif; ?>
                                         <a href="/file-index/download/file?path=<?= urlencode($file['path']) ?>" 
                                            class="btn btn-sm btn-outline-success download-btn" 
                                            title="Download file"
@@ -177,26 +190,6 @@
 
 <script>
 function showDownloadProgress(button) {
-    // Store original content
-    const originalText = button.innerHTML;
-    const originalClass = button.className;
-    
-    // Show loading state
-    button.innerHTML = '⏳ Creating Archive...';
-    button.className = button.className.replace('btn-outline-success', 'btn-secondary');
-    button.disabled = true;
-    
-    // Reset after download starts (browsers will handle the actual download)
-    setTimeout(() => {
-        button.innerHTML = originalText;
-        button.className = originalClass;
-        button.disabled = false;
-    }, 3000);
-}
-</script>
-
-<script>
-function showDownloadProgress(button) {
     const originalText = button.innerHTML;
     const originalClass = button.className;
     
@@ -212,4 +205,111 @@ function showDownloadProgress(button) {
         button.disabled = false;
     }, 3000);
 }
+</script>
+
+<!-- Video Player Modal -->
+<div class="modal fade video-modal" id="videoPlayerModal" tabindex="-1" aria-labelledby="videoPlayerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-0 py-2">
+                <h6 class="modal-title text-white" id="videoPlayerModalLabel">Video Player</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <video id="videoPlayer" playsinline controls>
+                    <source id="videoSource" src="" type="video/mp4">
+                    Your browser does not support HTML5 video.
+                </video>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let player = null;
+    const videoModal = document.getElementById('videoPlayerModal');
+    const videoElement = document.getElementById('videoPlayer');
+    const videoSource = document.getElementById('videoSource');
+    const modalTitle = document.getElementById('videoPlayerModalLabel');
+    
+    // Video MIME types mapping
+    const mimeTypes = {
+        'mp4': 'video/mp4',
+        'm4v': 'video/mp4',
+        'webm': 'video/webm',
+        'ogg': 'video/ogg',
+        'mov': 'video/quicktime',
+        'mkv': 'video/x-matroska',
+        'avi': 'video/x-msvideo'
+    };
+    
+    // Initialize Plyr when modal opens
+    if (videoModal) {
+        videoModal.addEventListener('shown.bs.modal', function() {
+            if (!player && typeof Plyr !== 'undefined') {
+                player = new Plyr(videoElement, {
+                    controls: [
+                        'play-large',
+                        'play',
+                        'progress',
+                        'current-time',
+                        'duration',
+                        'mute',
+                        'volume',
+                        'settings',
+                        'pip',
+                        'fullscreen'
+                    ],
+                    settings: ['quality', 'speed'],
+                    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+                    keyboard: { focused: true, global: true }
+                });
+            }
+            if (player) {
+                player.play();
+            }
+        });
+        
+        // Stop video when modal closes
+        videoModal.addEventListener('hidden.bs.modal', function() {
+            if (player) {
+                player.pause();
+                player.currentTime = 0;
+            }
+            videoElement.pause();
+            videoElement.currentTime = 0;
+        });
+    }
+    
+    // Handle play button clicks
+    document.addEventListener('click', function(e) {
+        const playBtn = e.target.closest('.btn-play-video');
+        if (!playBtn) return;
+        
+        const videoPath = playBtn.dataset.videoPath;
+        const videoName = playBtn.dataset.videoName;
+        
+        if (!videoPath) return;
+        
+        // Get file extension and set appropriate MIME type
+        const ext = videoName.split('.').pop().toLowerCase();
+        const mimeType = mimeTypes[ext] || 'video/mp4';
+        
+        // Update modal title
+        modalTitle.textContent = videoName;
+        
+        // Set video source
+        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(videoPath);
+        videoSource.src = streamUrl;
+        videoSource.type = mimeType;
+        
+        // Reload video element
+        videoElement.load();
+        
+        // Show modal
+        const modal = new bootstrap.Modal(videoModal);
+        modal.show();
+    });
+})();
 </script>
