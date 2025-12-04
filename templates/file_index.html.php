@@ -318,7 +318,18 @@ function showDownloadProgress(button) {
         let tapTimeout = null;
         const DOUBLE_TAP_DELAY = 300; // ms
         
+        // Prevent default double-click behavior (fullscreen toggle)
+        element.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+        }, true);
+        
         element.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
             
@@ -326,8 +337,6 @@ function showDownloadProgress(button) {
             
             if (tapLength < DOUBLE_TAP_DELAY && tapLength > 0) {
                 // Double tap detected
-                e.preventDefault();
-                e.stopPropagation();
                 callback(e);
                 lastTap = 0;
             } else {
@@ -337,10 +346,13 @@ function showDownloadProgress(button) {
                     lastTap = 0;
                 }, DOUBLE_TAP_DELAY);
             }
-        });
+        }, true);
         
         // Also handle touch events for mobile
         element.addEventListener('touchend', function(e) {
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
             
@@ -357,7 +369,7 @@ function showDownloadProgress(button) {
                     lastTap = 0;
                 }, DOUBLE_TAP_DELAY);
             }
-        });
+        }, true);
     }
     
     // Show ripple effect
