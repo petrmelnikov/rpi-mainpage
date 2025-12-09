@@ -274,26 +274,62 @@ function showDownloadProgress(button) {
 </div>
 
 <script>
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
     let player = null;
     let seekZonesInitialized = false;
-    const videoModal = document.getElementById('videoPlayerModal');
+    let currentVideoPath = null;
+    let timeUpdateTimeout = null;
+    let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
+
+    const videoModalElement = document.getElementById('videoPlayerModal');
     const videoElement = document.getElementById('videoPlayer');
-    const videoSource = document.getElementById('videoSource');
     const modalTitle = document.getElementById('videoPlayerModalLabel');
-    const SEEK_TIME = 10; // seconds
     
+    // Initialize Bootstrap modal only after DOM is ready and Bootstrap is loaded
+    let videoModal = null;
+    if (typeof bootstrap !== 'undefined') {
+        videoModal = new bootstrap.Modal(videoModalElement);
+    } else {
+        console.error('Bootstrap is not loaded');
+        return;
+    }
+    
+    const SEEK_TIME = 10; // seconds
+    const SAVE_INTERVAL = 5000; // 5 seconds
+
     // Video MIME types mapping
     const mimeTypes = {
-        'mp4': 'video/mp4',
-        'm4v': 'video/mp4',
-        'webm': 'video/webm',
-        'ogg': 'video/ogg',
-        'mov': 'video/quicktime',
-        'mkv': 'video/x-matroska',
-        'avi': 'video/x-msvideo'
+        'mp4': 'video/mp4', 'm4v': 'video/mp4', 'webm': 'video/webm', 'ogg': 'video/ogg',
+        'mov': 'video/quicktime', 'mkv': 'video/x-matroska', 'avi': 'video/x-msvideo'
     };
-    
+
+    // --- LocalStorage helpers ---
+    function saveVideoTime(path, time) {
+        if (!path) return;
+        // Prevent overwriting valid saved time with 0 if video hasn't started/restored properly yet
+        if (!isVideoReadyForSave && time < 1) {
+            return;
+        }
+        try {
+            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
+            videoProgress[path] = time;
+            localStorage.setItem('videoProgress', JSON.stringify(videoProgress));
+        } catch (e) {
+            console.error("Failed to save video time to localStorage", e);
+        }
+    }
+
+    function getSavedVideoTime(path) {
+        if (!path) return 0;
+        try {
+            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
+            return parseFloat(videoProgress[path] || 0);
+        } catch (e) {
+            console.error("Failed to get video time from localStorage", e);
+            return 0;
+        }
+    }
+
     // Create seek zone HTML
     function createSeekZonesHTML() {
         return `
@@ -311,7 +347,7 @@ function showDownloadProgress(button) {
             </div>
         `;
     }
-    
+
     // Show ripple effect
     function showRipple(element, e) {
         const ripple = document.createElement('div');
@@ -328,7 +364,7 @@ function showDownloadProgress(button) {
         element.appendChild(ripple);
         setTimeout(() => ripple.remove(), 400);
     }
-    
+
     // Show seek indicator
     function showSeekIndicator(indicator) {
         indicator.classList.remove('show');
@@ -336,25 +372,23 @@ function showDownloadProgress(button) {
         indicator.classList.add('show');
         setTimeout(() => indicator.classList.remove('show'), 500);
     }
-    
-    // Seek video
+
+    // Seek video helper
     function seekVideo(seconds) {
         if (player) {
             const newTime = player.currentTime + seconds;
             player.currentTime = Math.max(0, Math.min(player.duration || Infinity, newTime));
         }
     }
-    
-    // Setup seek zones with double-tap detection
+
+    // Setup seek zones logic
     function setupSeekZones() {
-        // Use player.elements.container if available, otherwise fallback
         const plyrContainer = player && player.elements && player.elements.container 
             ? player.elements.container 
             : document.querySelector('.plyr');
             
         if (!plyrContainer || seekZonesInitialized) return;
-        
-        // Insert seek zones into Plyr container
+
         plyrContainer.insertAdjacentHTML('beforeend', createSeekZonesHTML());
         seekZonesInitialized = true;
         
@@ -363,143 +397,130 @@ function showDownloadProgress(button) {
         const seekIndicatorLeft = document.getElementById('seekIndicatorLeft');
         const seekIndicatorRight = document.getElementById('seekIndicatorRight');
         
-        // Double-tap handler factory
         function setupDoubleTap(element, seekSeconds, indicator) {
             let lastTap = 0;
-            let tapTimeout = null;
             const DOUBLE_TAP_DELAY = 300;
             
             function handleTap(e) {
-                // Always prevent default and propagation for taps on seek zones
-                // This ensures Plyr doesn't see them as clicks on the video
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
                 const now = Date.now();
-                const timeDiff = now - lastTap;
-                
-                clearTimeout(tapTimeout);
-                
-                if (timeDiff < DOUBLE_TAP_DELAY && timeDiff > 0) {
-                    // Double tap - seek
+                if (now - lastTap < DOUBLE_TAP_DELAY) {
                     seekVideo(seekSeconds);
                     showRipple(element, e);
                     showSeekIndicator(indicator);
                     lastTap = 0;
                 } else {
-                    // First tap - wait for potential second tap
                     lastTap = now;
-                    tapTimeout = setTimeout(() => { lastTap = 0; }, DOUBLE_TAP_DELAY);
                 }
             }
-            
-            // Capture phase to intercept before Plyr
             element.addEventListener('click', handleTap, true);
             element.addEventListener('touchend', handleTap, true);
-            element.addEventListener('dblclick', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
+            element.addEventListener('dblclick', (e) => {
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
             }, true);
         }
         
         if (seekZoneLeft) setupDoubleTap(seekZoneLeft, -SEEK_TIME, seekIndicatorLeft);
         if (seekZoneRight) setupDoubleTap(seekZoneRight, SEEK_TIME, seekIndicatorRight);
         
-        // Disable Plyr's double-click fullscreen on the video/poster area
-        // We attach to the container to catch it early in capture phase
-        plyrContainer.addEventListener('dblclick', function(e) {
-            // If the target is NOT a seek zone, we might want to allow fullscreen (center tap)
-            // But if it IS a seek zone, we must stop it.
-            // Since seek zones stop propagation themselves, this listener is a safety net
-            // for the center area if we want to disable fullscreen there too.
-            // However, user wants center double tap to toggle fullscreen (or at least didn't complain about it in window mode).
-            // The issue is left/right double tap triggering fullscreen.
-            
-            // If the event originated from a seek zone, stop it.
+        plyrContainer.addEventListener('dblclick', (e) => {
             if (e.target.closest('.seek-zone')) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
             }
         }, true);
     }
     
-    // Initialize Plyr when modal opens
-    if (videoModal) {
-        videoModal.addEventListener('shown.bs.modal', function() {
-            if (!player && typeof Plyr !== 'undefined') {
-                player = new Plyr(videoElement, {
-                    controls: [
-                        'play-large',
-                        'play',
-                        'progress',
-                        'current-time',
-                        'duration',
-                        'mute',
-                        'volume',
-                        'settings',
-                        'pip',
-                        'fullscreen'
-                    ],
-                    settings: ['quality', 'speed'],
-                    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-                    keyboard: { focused: true, global: true },
-                    seekTime: SEEK_TIME,
-                    clickToPlay: true,
-                    disableContextMenu: false
-                });
-                
-                // Setup seek zones after Plyr initializes
-                player.on('ready', function() {
-                    setupSeekZones();
-                });
-            }
-            if (player) {
-                player.play();
-            }
+    // Initialize Plyr ONCE
+    function initPlyr() {
+        if (player || typeof Plyr === 'undefined') return;
+        
+        player = new Plyr(videoElement, {
+            controls: [
+                'play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 
+                'volume', 'settings', 'pip', 'fullscreen'
+            ],
+            settings: ['quality', 'speed'],
+            speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+            keyboard: { focused: true, global: true },
+            seekTime: SEEK_TIME,
+            clickToPlay: true,
+            disableContextMenu: false
         });
         
-        // Stop video when modal closes
-        videoModal.addEventListener('hidden.bs.modal', function() {
-            if (player) {
-                player.pause();
-                player.currentTime = 0;
+        player.on('ready', function() {
+            setupSeekZones();
+        });
+
+        player.on('loadedmetadata', function() {
+            const savedTime = getSavedVideoTime(currentVideoPath);
+            if (savedTime > 0) {
+                player.currentTime = savedTime;
             }
-            videoElement.pause();
-            videoElement.currentTime = 0;
+            isVideoReadyForSave = true;
+        });
+
+        player.on('timeupdate', function() {
+            if (isVideoReadyForSave && !timeUpdateTimeout) {
+                timeUpdateTimeout = setTimeout(() => {
+                    saveVideoTime(currentVideoPath, player.currentTime);
+                    timeUpdateTimeout = null;
+                }, SAVE_INTERVAL);
+            }
         });
     }
+    
+    // Initialize on load
+    initPlyr();
+        
+    // Stop video and save final time when modal closes
+    videoModalElement.addEventListener('hidden.bs.modal', function() {
+        if (player) {
+            clearTimeout(timeUpdateTimeout);
+            timeUpdateTimeout = null;
+            if (isVideoReadyForSave) {
+                saveVideoTime(currentVideoPath, player.currentTime);
+            }
+            player.pause();
+            isVideoReadyForSave = false;
+            currentVideoPath = null;
+        }
+    });
     
     // Handle play button clicks
     document.addEventListener('click', function(e) {
         const playBtn = e.target.closest('.btn-play-video');
         if (!playBtn) return;
         
-        const videoPath = playBtn.dataset.videoPath;
+        currentVideoPath = playBtn.dataset.videoPath; // Store current video path
         const videoName = playBtn.dataset.videoName;
         
-        if (!videoPath) return;
+        if (!currentVideoPath) return;
         
-        // Get file extension and set appropriate MIME type
+        initPlyr();
+        
+        isVideoReadyForSave = false;
+
         const ext = videoName.split('.').pop().toLowerCase();
         const mimeType = mimeTypes[ext] || 'video/mp4';
         
-        // Update modal title
         modalTitle.textContent = videoName;
         
-        // Set video source
-        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(videoPath);
-        videoSource.src = streamUrl;
-        videoSource.type = mimeType;
+        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(currentVideoPath);
         
-        // Reload video element
-        videoElement.load();
+        player.source = {
+            type: 'video',
+            title: videoName,
+            sources: [
+                {
+                    src: streamUrl,
+                    type: mimeType,
+                },
+            ],
+        };
         
-        // Show modal
-        const modal = new bootstrap.Modal(videoModal);
-        modal.show();
+        if (videoModal) {
+            videoModal.show();
+        }
     });
-})();
+});
 </script>
