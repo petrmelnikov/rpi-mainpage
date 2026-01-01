@@ -8,11 +8,11 @@ class Router
 
     public function parse(array $server): RouteDataDto
     {
-        $method = $server['REQUEST_METHOD'];
-        $path = $server['REQUEST_URI'];
+        $method = $server['REQUEST_METHOD'] ?? 'GET';
+        $path = $server['REQUEST_URI'] ?? '';
 
         // Remove query parameters from path
-        $path = parse_url($path, PHP_URL_PATH);
+        $path = parse_url((string)$path, PHP_URL_PATH);
         $path = trim($path, '/');
 
         $routeData = new RouteDataDto();

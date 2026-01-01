@@ -1,0 +1,655 @@
+<?php
+
+namespace App\Controller;
+
+use App\FileIndexManager;
+use App\Router;
+use App\Support\PathGuard;
+
+class FileIndexController
+{
+    public function registerRoutes(Router $router, string $appRoot): void
+    {
+        $router->addRoute('GET', '/file-index', [$this, 'index'], $appRoot . '/templates/file_index.html.php');
+        $router->addRoute('POST', '/file-index/delete', [$this, 'delete']);
+        $router->addRoute('POST', '/file-index/pin', [$this, 'pin']);
+        $router->addRoute('POST', '/file-index/unpin', [$this, 'unpin']);
+        $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
+        $router->addRoute('GET', '/file-index/stream', [$this, 'streamVideo']);
+        $router->addRoute('GET', '/file-index/download/file', [$this, 'downloadFile']);
+        $router->addRoute('GET', '/file-index/nfo', [$this, 'getNfo']);
+        $router->addRoute('POST', '/file-index/nfo', [$this, 'saveNfo']);
+    }
+
+    public function index(): array
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $currentPath = (string)($_GET['path'] ?? '');
+        $currentPath = trim($currentPath, '/');
+
+        $currentFullPath = $catalogPath;
+        if ($currentPath !== '') {
+            $currentPath = str_replace(['../', '.\\', '..\\'], '', $currentPath);
+            $currentFullPath = rtrim($catalogPath, '/') . '/' . $currentPath;
+        }
+
+        $files = [];
+        $errors = [];
+        if (!empty($_GET['error'])) {
+            $errors[] = (string)$_GET['error'];
+        }
+        $breadcrumbs = [];
+
+        $breadcrumbs[] = ['name' => 'Root', 'path' => ''];
+        if ($currentPath !== '') {
+            $pathParts = explode('/', $currentPath);
+            $buildPath = '';
+            foreach ($pathParts as $part) {
+                $buildPath = $buildPath ? $buildPath . '/' . $part : $part;
+                $breadcrumbs[] = ['name' => $part, 'path' => $buildPath];
+            }
+        }
+
+        if (is_dir($currentFullPath)) {
+            try {
+                if (!is_readable($currentFullPath)) {
+                    $errors[] = 'Directory is not readable: ' . $currentFullPath;
+                } else {
+                    $iterator = new \DirectoryIterator($currentFullPath);
+
+                    foreach ($iterator as $file) {
+                        if ($file->isDot()) continue;
+
+                        try {
+                            $relativePath = $currentPath ? $currentPath . '/' . $file->getFilename() : $file->getFilename();
+                            $files[] = [
+                                'name' => $file->getFilename(),
+                                'path' => $relativePath,
+                                'fullPath' => $file->getPathname(),
+                                'isDir' => $file->isDir(),
+                                'size' => $file->isFile() ? $file->getSize() : 0,
+                                'modified' => $file->getMTime(),
+                                'isNavigable' => $file->isDir() && $file->isReadable()
+                            ];
+                        } catch (\Exception $e) {
+                            continue;
+                        }
+                    }
+
+                    usort($files, function($a, $b) {
+                        if ($a['isDir'] && !$b['isDir']) return -1;
+                        if (!$a['isDir'] && $b['isDir']) return 1;
+                        return strcasecmp($a['name'], $b['name']);
+                    });
+                }
+            } catch (\Exception $e) {
+                $errors[] = 'Error reading directory: ' . $e->getMessage();
+            }
+        } else {
+            $errors[] = 'Directory does not exist or is not accessible: ' . $currentFullPath;
+        }
+
+        $pinnedDirectories = $fileIndexManager->getPinnedDirectories();
+
+        return [
+            'catalogPath' => $catalogPath,
+            'currentPath' => $currentPath,
+            'currentFullPath' => $currentFullPath,
+            'breadcrumbs' => $breadcrumbs,
+            'files' => $files,
+            'errors' => $errors,
+            'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
+            'totalDirs' => count(array_filter($files, fn($f) => $f['isDir'])),
+            'pinnedDirectories' => $pinnedDirectories,
+            'pinnedPaths' => array_column($pinnedDirectories, null, 'path')
+        ];
+    }
+
+    public function delete(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_POST['path'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+
+        $redirectUrl = '/file-index';
+        if ($returnPath !== '') {
+            $redirectUrl .= '?path=' . urlencode(trim($returnPath, '/'));
+        }
+
+        $path = trim($path);
+        if ($path === '') {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File path is required'));
+            exit;
+        }
+
+        try {
+            $segments = PathGuard::toSegments($path);
+        } catch (\InvalidArgumentException $e) {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode($e->getMessage()));
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath) && !is_link($fullPath)) {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File not found'));
+            exit;
+        }
+
+        if (is_dir($fullPath)) {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Cannot delete directories'));
+            exit;
+        }
+
+        if (!@unlink($fullPath)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Failed to delete file: ' . $reason));
+            exit;
+        }
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function pin(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_POST['path'] ?? '');
+        $name = (string)($_POST['name'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+
+        if ($path !== '' && $name !== '') {
+            try {
+                $segments = PathGuard::toSegments($path);
+                $cleanPath = PathGuard::segmentsToRelativePath($segments);
+                $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+                if (is_dir($fullPath)) {
+                    $fileIndexManager->addPinnedDirectory($cleanPath, $name);
+                }
+            } catch (\InvalidArgumentException $e) {
+                // ignore invalid path
+            }
+        }
+
+        $redirectUrl = '/file-index';
+        if ($returnPath !== '') {
+            $redirectUrl .= '?path=' . urlencode($returnPath);
+        }
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function unpin(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $path = (string)($_POST['path'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+
+        if ($path !== '') {
+            $fileIndexManager->removePinnedDirectory($path);
+        }
+
+        $redirectUrl = '/file-index';
+        if ($returnPath !== '') {
+            $redirectUrl .= '?path=' . urlencode($returnPath);
+        }
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function downloadDirectory(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+        $relativePath = (string)($_GET['path'] ?? '');
+
+        try {
+            $segments = PathGuard::toSegmentsAllowEmpty($relativePath);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo $e->getMessage();
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo 'Directory not found';
+            exit;
+        }
+
+        if (!is_dir($fullPath)) {
+            http_response_code(400);
+            echo 'Path is not a directory';
+            exit;
+        }
+
+        if (!is_readable($fullPath)) {
+            http_response_code(403);
+            echo 'Directory not readable';
+            exit;
+        }
+
+        $dirName = basename($fullPath);
+        if ($dirName === '') {
+            $dirName = 'catalog';
+        }
+        $archiveName = $dirName . '.tar.gz';
+
+        header('Content-Type: application/gzip');
+        header('Content-Disposition: attachment; filename="' . $archiveName . '"');
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Expires: 0');
+        header('X-Archive-Name: ' . $archiveName);
+        header('X-Source-Path: ' . basename($fullPath));
+
+        $descriptorspec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+
+        $cmd = 'cd ' . escapeshellarg(dirname($fullPath)) . ' && tar -czf - ' . escapeshellarg(basename($fullPath)) . ' 2>/dev/null';
+        $process = proc_open($cmd, $descriptorspec, $pipes);
+
+        if (is_resource($process)) {
+            fclose($pipes[0]);
+
+            while (!feof($pipes[1])) {
+                $chunk = fread($pipes[1], 8192);
+                if ($chunk !== false && $chunk !== '') {
+                    echo $chunk;
+                    ob_flush();
+                    flush();
+                }
+            }
+
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+        } else {
+            http_response_code(500);
+            echo 'Failed to create archive';
+        }
+
+        exit;
+    }
+
+    public function streamVideo(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+        $relativePath = (string)($_GET['path'] ?? '');
+
+        try {
+            $segments = PathGuard::toSegments($relativePath);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo $e->getMessage();
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo 'File not found';
+            exit;
+        }
+
+        if (!is_file($fullPath)) {
+            http_response_code(400);
+            echo 'Path is not a file';
+            exit;
+        }
+
+        if (!is_readable($fullPath)) {
+            http_response_code(403);
+            echo 'File not readable';
+            exit;
+        }
+
+        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+        $videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v'];
+
+        if (!in_array($extension, $videoExtensions)) {
+            http_response_code(400);
+            echo 'Not a supported video file';
+            exit;
+        }
+
+        $fileSize = filesize($fullPath);
+
+        $mimeTypes = [
+            'mp4' => 'video/mp4',
+            'm4v' => 'video/mp4',
+            'webm' => 'video/webm',
+            'ogg' => 'video/ogg',
+            'mov' => 'video/quicktime',
+            'mkv' => 'video/x-matroska',
+            'avi' => 'video/x-msvideo'
+        ];
+        $mimeType = $mimeTypes[$extension] ?? 'video/mp4';
+
+        $start = 0;
+        $end = $fileSize - 1;
+
+        if (isset($_SERVER['HTTP_RANGE'])) {
+            if (preg_match('/bytes=(\d*)-(\d*)/', $_SERVER['HTTP_RANGE'], $matches)) {
+                $start = $matches[1] !== '' ? intval($matches[1]) : 0;
+                $end = $matches[2] !== '' ? intval($matches[2]) : $fileSize - 1;
+
+                if ($start > $end || $start >= $fileSize) {
+                    http_response_code(416);
+                    header("Content-Range: bytes */$fileSize");
+                    exit;
+                }
+
+                $end = min($end, $fileSize - 1);
+
+                http_response_code(206);
+                header("Content-Range: bytes $start-$end/$fileSize");
+            }
+        }
+
+        $length = $end - $start + 1;
+
+        header('Content-Type: ' . $mimeType);
+        header('Accept-Ranges: bytes');
+        header('Content-Length: ' . $length);
+        header('Cache-Control: public, max-age=3600');
+        header('Content-Disposition: inline');
+
+        $handle = fopen($fullPath, 'rb');
+        if ($handle) {
+            if ($start > 0) {
+                fseek($handle, $start);
+            }
+
+            $remaining = $length;
+            while (!feof($handle) && $remaining > 0) {
+                $chunkSize = min(8192, $remaining);
+                $chunk = fread($handle, $chunkSize);
+                if ($chunk !== false) {
+                    echo $chunk;
+                    $remaining -= strlen($chunk);
+                    ob_flush();
+                    flush();
+                }
+            }
+            fclose($handle);
+        } else {
+            http_response_code(500);
+            echo 'Failed to read file';
+        }
+
+        exit;
+    }
+
+    public function downloadFile(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+        $relativePath = (string)($_GET['path'] ?? '');
+
+        try {
+            $segments = PathGuard::toSegments($relativePath);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo $e->getMessage();
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo 'File not found';
+            exit;
+        }
+
+        if (!is_file($fullPath)) {
+            http_response_code(400);
+            echo 'Path is not a file';
+            exit;
+        }
+
+        if (!is_readable($fullPath)) {
+            http_response_code(403);
+            echo 'File not readable';
+            exit;
+        }
+
+        $fileName = basename($fullPath);
+        $fileSize = filesize($fullPath);
+        $mimeType = mime_content_type($fullPath) ?: 'application/octet-stream';
+
+        header('Content-Type: ' . $mimeType);
+        header('Content-Disposition: attachment; filename="' . $fileName . '"');
+        header('Content-Length: ' . $fileSize);
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Expires: 0');
+        header('X-File-Name: ' . $fileName);
+        header('X-File-Size: ' . $fileSize);
+
+        $handle = fopen($fullPath, 'rb');
+        if ($handle) {
+            while (!feof($handle)) {
+                $chunk = fread($handle, 8192);
+                if ($chunk !== false) {
+                    echo $chunk;
+                    ob_flush();
+                    flush();
+                }
+            }
+            fclose($handle);
+        } else {
+            http_response_code(500);
+            echo 'Failed to read file';
+        }
+
+        exit;
+    }
+
+    public function getNfo(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_GET['path'] ?? '');
+        $path = trim($path);
+
+        header('Content-Type: application/json; charset=utf-8');
+
+        if ($path === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Path is required']);
+            exit;
+        }
+
+        try {
+            $segments = PathGuard::toSegments($path);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'Target not found']);
+            exit;
+        }
+
+        $isDir = is_dir($fullPath);
+        if (!$isDir && is_file($fullPath)) {
+            $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+            if ($extension === 'nfo') {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'NFO files are not supported as a target']);
+                exit;
+            }
+        }
+
+        if ($isDir) {
+            $nfoFullPath = rtrim($fullPath, '/') . '/tvshow.nfo';
+            $nfoRelativePath = PathGuard::segmentsToRelativePath(array_merge($segments, ['tvshow.nfo']));
+        } else {
+            $dir = dirname($fullPath);
+            $base = pathinfo($fullPath, PATHINFO_FILENAME);
+            $nfoFullPath = rtrim($dir, '/') . '/' . $base . '.nfo';
+            $nfoRelativePath = PathGuard::segmentsToRelativePath(array_merge(array_slice($segments, 0, -1), [$base . '.nfo']));
+        }
+
+        $exists = file_exists($nfoFullPath) && is_file($nfoFullPath);
+        $title = '';
+        $year = '';
+
+        if ($exists && is_readable($nfoFullPath)) {
+            $content = file_get_contents($nfoFullPath);
+            if ($content !== false && trim($content) !== '') {
+                libxml_use_internal_errors(true);
+                $xml = simplexml_load_string($content);
+                if ($xml !== false) {
+                    $title = isset($xml->title) ? (string)$xml->title : '';
+                    $year = isset($xml->year) ? (string)$xml->year : '';
+                }
+                libxml_clear_errors();
+            }
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'exists' => $exists,
+            'title' => $title,
+            'year' => $year,
+            'nfoPath' => $nfoRelativePath,
+            'targetIsDir' => $isDir,
+        ]);
+        exit;
+    }
+
+    public function saveNfo(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_POST['path'] ?? '');
+        $title = trim((string)($_POST['title'] ?? ''));
+        $year = trim((string)($_POST['year'] ?? ''));
+
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (trim($path) === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Path is required']);
+            exit;
+        }
+        if ($title === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Title is required']);
+            exit;
+        }
+        if ($year !== '' && (!ctype_digit($year) || strlen($year) !== 4)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Year must be a 4-digit number']);
+            exit;
+        }
+
+        try {
+            $segments = PathGuard::toSegments($path);
+        } catch (\InvalidArgumentException $e) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'Target not found']);
+            exit;
+        }
+
+        $isDir = is_dir($fullPath);
+        if (!$isDir && is_file($fullPath)) {
+            $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+            if ($extension === 'nfo') {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'NFO files are not supported as a target']);
+                exit;
+            }
+        }
+
+        if ($isDir) {
+            $nfoFullPath = rtrim($fullPath, '/') . '/tvshow.nfo';
+            $nfoRelativePath = PathGuard::segmentsToRelativePath(array_merge($segments, ['tvshow.nfo']));
+        } else {
+            $dir = dirname($fullPath);
+            $base = pathinfo($fullPath, PATHINFO_FILENAME);
+            $nfoFullPath = rtrim($dir, '/') . '/' . $base . '.nfo';
+            $nfoRelativePath = PathGuard::segmentsToRelativePath(array_merge(array_slice($segments, 0, -1), [$base . '.nfo']));
+        }
+
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom->formatOutput = true;
+        $root = $dom->createElement($isDir ? 'tvshow' : 'movie');
+        $dom->appendChild($root);
+
+        $titleEl = $dom->createElement('title');
+        $titleEl->appendChild($dom->createTextNode($title));
+        $root->appendChild($titleEl);
+
+        if ($year !== '') {
+            $yearEl = $dom->createElement('year');
+            $yearEl->appendChild($dom->createTextNode($year));
+            $root->appendChild($yearEl);
+        }
+
+        $xml = $dom->saveXML();
+        if ($xml === false) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Failed to generate XML']);
+            exit;
+        }
+
+        $parentDir = dirname($nfoFullPath);
+        if (!is_dir($parentDir) || !is_writable($parentDir)) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Target directory is not writable']);
+            exit;
+        }
+
+        $bytes = @file_put_contents($nfoFullPath, $xml, LOCK_EX);
+        if ($bytes === false) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Failed to write NFO: ' . $reason]);
+            exit;
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'nfoPath' => $nfoRelativePath,
+        ]);
+        exit;
+    }
+}

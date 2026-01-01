@@ -171,6 +171,16 @@
                                 <td>
                                     <?php if ($file['isDir']): ?>
                                         <?php $isPinned = isset($pinnedPaths[$file['path']]); ?>
+                                        <?php if ($file['isNavigable']): ?>
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-secondary me-1 btn-override-media-info"
+                                                    data-media-path="<?= htmlspecialchars($file['path']) ?>"
+                                                    data-media-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    data-media-is-dir="1"
+                                                    title="Override media info">
+                                                📝 Override Media Info
+                                            </button>
+                                        <?php endif; ?>
                                         <?php if ($isPinned): ?>
                                             <form action="/file-index/unpin" method="POST" class="d-inline me-1">
                                                 <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
@@ -199,7 +209,18 @@
                                         <?php
                                         $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
                                         $isPlayableVideo = in_array($fileExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        $isNfoFile = ($fileExt === 'nfo');
                                         ?>
+                                        <?php if (!$isNfoFile && $isPlayableVideo): ?>
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-secondary me-1 btn-override-media-info"
+                                                    data-media-path="<?= htmlspecialchars($file['path']) ?>"
+                                                    data-media-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    data-media-is-dir="0"
+                                                    title="Override media info">
+                                                📝 Override Media Info
+                                            </button>
+                                        <?php endif; ?>
                                         <?php if ($isPlayableVideo): ?>
                                             <button type="button" 
                                                     class="btn btn-sm btn-outline-success btn-play-video me-1"
@@ -279,6 +300,42 @@ function showDownloadProgress(button) {
                     <button type="submit" class="btn btn-danger">Delete</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Override Media Info Modal -->
+<div class="modal fade" id="overrideMediaInfoModal" tabindex="-1" aria-labelledby="overrideMediaInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="overrideMediaInfoModalLabel">Override Media Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <div class="small text-muted">Target:</div>
+                    <div class="fw-semibold" id="overrideMediaInfoTargetName"></div>
+                </div>
+
+                <div class="alert alert-danger d-none" id="overrideMediaInfoError"></div>
+                <div class="alert alert-success d-none" id="overrideMediaInfoSuccess"></div>
+
+                <input type="hidden" id="overrideMediaInfoPath" value="">
+
+                <div class="mb-3">
+                    <label for="overrideMediaInfoTitle" class="form-label">Title</label>
+                    <input type="text" class="form-control" id="overrideMediaInfoTitle" autocomplete="off">
+                </div>
+                <div class="mb-0">
+                    <label for="overrideMediaInfoYear" class="form-label">Year</label>
+                    <input type="number" class="form-control" id="overrideMediaInfoYear" inputmode="numeric" min="1000" max="9999" placeholder="Optional">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="overrideMediaInfoSaveBtn">Save</button>
+            </div>
         </div>
     </div>
 </div>
@@ -578,5 +635,135 @@ document.addEventListener('DOMContentLoaded', function() {
 
         deleteModal.show();
     });
+
+    // --- Override media info modal ---
+    const overrideModalElement = document.getElementById('overrideMediaInfoModal');
+    const overrideTargetNameEl = document.getElementById('overrideMediaInfoTargetName');
+    const overridePathInput = document.getElementById('overrideMediaInfoPath');
+    const overrideTitleInput = document.getElementById('overrideMediaInfoTitle');
+    const overrideYearInput = document.getElementById('overrideMediaInfoYear');
+    const overrideSaveBtn = document.getElementById('overrideMediaInfoSaveBtn');
+    const overrideErrorEl = document.getElementById('overrideMediaInfoError');
+    const overrideSuccessEl = document.getElementById('overrideMediaInfoSuccess');
+
+    let overrideModal = null;
+    if (overrideModalElement && typeof bootstrap !== 'undefined') {
+        overrideModal = new bootstrap.Modal(overrideModalElement);
+    }
+
+    function setOverrideError(msg) {
+        if (!overrideErrorEl) return;
+        if (!msg) {
+            overrideErrorEl.classList.add('d-none');
+            overrideErrorEl.textContent = '';
+            return;
+        }
+        overrideErrorEl.textContent = msg;
+        overrideErrorEl.classList.remove('d-none');
+    }
+
+    function setOverrideSuccess(msg) {
+        if (!overrideSuccessEl) return;
+        if (!msg) {
+            overrideSuccessEl.classList.add('d-none');
+            overrideSuccessEl.textContent = '';
+            return;
+        }
+        overrideSuccessEl.textContent = msg;
+        overrideSuccessEl.classList.remove('d-none');
+    }
+
+    async function loadExistingNfo(path) {
+        const url = '/file-index/nfo?path=' + encodeURIComponent(path);
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+            const err = (data && data.error) ? data.error : 'Failed to load existing NFO';
+            throw new Error(err);
+        }
+        return data;
+    }
+
+    async function saveNfo(path, title, year) {
+        const body = new URLSearchParams();
+        body.set('path', path);
+        body.set('title', title);
+        body.set('year', year);
+
+        const res = await fetch('/file-index/nfo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Accept': 'application/json'
+            },
+            body
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+            const err = (data && data.error) ? data.error : 'Failed to save NFO';
+            throw new Error(err);
+        }
+        return data;
+    }
+
+    document.addEventListener('click', async function(e) {
+        const btn = e.target.closest('.btn-override-media-info');
+        if (!btn || !overrideModal) return;
+
+        const mediaPath = btn.dataset.mediaPath || '';
+        const mediaName = btn.dataset.mediaName || '';
+        if (!mediaPath) return;
+
+        setOverrideError('');
+        setOverrideSuccess('');
+        overrideTargetNameEl.textContent = mediaName;
+        overridePathInput.value = mediaPath;
+        overrideTitleInput.value = '';
+        overrideYearInput.value = '';
+        overrideSaveBtn.disabled = true;
+
+        overrideModal.show();
+
+        try {
+            const data = await loadExistingNfo(mediaPath);
+            overrideTitleInput.value = data.title || '';
+            overrideYearInput.value = data.year || '';
+            overrideSaveBtn.disabled = false;
+        } catch (err) {
+            setOverrideError(err && err.message ? err.message : 'Failed to load existing NFO');
+            overrideSaveBtn.disabled = false;
+        }
+    });
+
+    if (overrideSaveBtn) {
+        overrideSaveBtn.addEventListener('click', async function() {
+            const path = overridePathInput.value || '';
+            const title = (overrideTitleInput.value || '').trim();
+            const year = (overrideYearInput.value || '').trim();
+
+            setOverrideError('');
+            setOverrideSuccess('');
+
+            if (!path) {
+                setOverrideError('Missing target path');
+                return;
+            }
+            if (!title) {
+                setOverrideError('Title is required');
+                return;
+            }
+
+            overrideSaveBtn.disabled = true;
+            try {
+                await saveNfo(path, title, year);
+                setOverrideSuccess('Saved');
+                // Refresh page so the created .nfo shows up in listing
+                window.location.reload();
+            } catch (err) {
+                setOverrideError(err && err.message ? err.message : 'Failed to save NFO');
+                overrideSaveBtn.disabled = false;
+            }
+        });
+    }
 });
 </script>
