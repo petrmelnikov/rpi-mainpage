@@ -14,6 +14,7 @@ The File Index feature provides a web-based file browser that displays files and
 - **Streaming downloads** without temporary files on server
 - **Configurable catalog path** through the settings interface
 - **Parent directory navigation** with up arrow button
+- **File deletion** with an extra confirmation modal
 - **Error handling** for permissions and non-existent paths
 - **Responsive Bootstrap UI** with download progress indicators
 - **Security protections** against directory traversal attacks
@@ -51,10 +52,15 @@ Settings are stored in `config/file_index.json`:
 - **Parent directory**: Use the "⬆️ Parent Directory" button to go up one level
 - **Current directory info**: View directory and file counts with badges
 - **Download files**: Click the "💾 Download" button next to any file for direct download
+- **Delete files**: Click "🗑 Delete" next to a file, confirm in the modal dialog
 - **Download directories**: Click the "📦 Archive" button next to any directory for compressed download
 - **Download current directory**: Click "📦 Download Current Directory" at the top
 - File downloads are served as-is in their original format with proper MIME types
 - Directory downloads are streamed as .tar.gz files without creating temporary files on the server
+
+## Deletion Notes
+- File deletion is performed via a POST request to the server and requires **write permissions** on the parent directory.
+- If you run the app via systemd with additional hardening, ensure the unit does not block writes to your catalog path (see [SERVER_SETUP_README.md](SERVER_SETUP_README.md)).
 
 ## Download Functionality
 - **Individual files**: Each file has a download button that serves the file directly in its original format
@@ -69,6 +75,7 @@ Settings are stored in `config/file_index.json`:
 
 ## Requirements
 - The specified catalog path must exist and be readable by the web server
+- **For deletion**: The server must have permission to remove files (write permission on the directory containing the file)
 - For best performance, limit the catalog to directories with reasonable file counts
 - **For downloads**: The server must have `tar` command available for directory archives (standard on Unix systems)
 - **For downloads**: Sufficient permissions to read all files in the target directories

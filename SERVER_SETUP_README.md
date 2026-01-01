@@ -4,17 +4,17 @@ This directory contains scripts to run your PHP application on Orange Pi with au
 
 ## Files Created
 
-- `start_server.sh` - Main server startup script
-- `stop_server.sh` - Server stop script  
+- `systemd_start_server.sh` - Main server startup script (systemd)
+- `systemd_stop_server.sh` - Server stop script (systemd)
 - `rpi-mainpage.service` - Systemd service file for autostart
-- `install.sh` - Automated installation script
+- `systemd_install.sh` - Automated installation script (systemd)
 
 ## Quick Installation
 
 Run the installation script as root:
 
 ```bash
-sudo ./install.sh
+sudo ./systemd_install.sh
 ```
 
 This will:
@@ -37,8 +37,8 @@ If you prefer manual setup:
    ```bash
    sudo mkdir -p /opt/rpi-mainpage
    sudo cp -r * /opt/rpi-mainpage/
-   sudo chmod +x /opt/rpi-mainpage/start_server.sh
-   sudo chmod +x /opt/rpi-mainpage/stop_server.sh
+   sudo chmod +x /opt/rpi-mainpage/systemd_start_server.sh
+   sudo chmod +x /opt/rpi-mainpage/systemd_stop_server.sh
    ```
 
 3. **Install systemd service**:
@@ -72,7 +72,7 @@ sudo systemctl status rpi-mainpage
 # View logs
 sudo journalctl -u rpi-mainpage -f
 
-# Enable autostart (done automatically by install.sh)
+# Enable autostart (done automatically by systemd_install.sh)
 sudo systemctl enable rpi-mainpage
 
 # Disable autostart
@@ -84,17 +84,17 @@ You can also run the scripts directly:
 
 ```bash
 # Start server
-sudo ./start_server.sh
+sudo ./systemd_start_server.sh
 
 # Stop server
-sudo ./stop_server.sh
+sudo ./systemd_stop_server.sh
 ```
 
 ## Configuration
 
 ### Changing Port or Host
 
-Edit `start_server.sh` and modify these variables:
+Edit `systemd_start_server.sh` and modify these variables:
 ```bash
 PHP_PORT=80        # Change to desired port (use 8080 if not root)
 PHP_HOST="0.0.0.0" # Change to specific IP if needed
@@ -103,9 +103,9 @@ PHP_HOST="0.0.0.0" # Change to specific IP if needed
 ### Changing Application Directory
 
 If you want to install to a different location, edit these files:
-- `start_server.sh`: Update `APP_DIR` variable
+- `systemd_start_server.sh`: Update `APP_DIR` variable
 - `rpi-mainpage.service`: Update `WorkingDirectory` and paths
-- `install.sh`: Update `APP_DIR` variable
+- `systemd_install.sh`: Update `APP_DIR` variable
 
 ## Logs
 
@@ -130,13 +130,13 @@ sudo netstat -tulpn | grep :80
 ### Permission issues
 Make sure the scripts are executable:
 ```bash
-sudo chmod +x /opt/rpi-mainpage/start_server.sh
-sudo chmod +x /opt/rpi-mainpage/stop_server.sh
+sudo chmod +x /opt/rpi-mainpage/systemd_start_server.sh
+sudo chmod +x /opt/rpi-mainpage/systemd_stop_server.sh
 ```
 
 ### Port 80 access
 If you can't use port 80 (requires root), change to port 8080:
-1. Edit `start_server.sh` and change `PHP_PORT=8080`
+1. Edit `systemd_start_server.sh` and change `PHP_PORT=8080`
 2. Access your app at `http://your-opi-ip:8080`
 
 ## Security Notes

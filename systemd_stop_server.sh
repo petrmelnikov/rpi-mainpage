@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RPI Mainpage Server Stop Script
+# RPI Mainpage Server Stop Script (systemd)
 
 PID_FILE="/var/run/rpi-mainpage.pid"
 LOG_FILE="/var/log/rpi-mainpage.log"
@@ -50,16 +50,16 @@ PID=$(cat "$PID_FILE")
 if ps -p "$PID" > /dev/null 2>&1; then
     print_status "Stopping RPI Mainpage server (PID: $PID)..."
     kill "$PID"
-    
+
     # Wait for graceful shutdown
     sleep 2
-    
+
     # Force kill if still running
     if ps -p "$PID" > /dev/null 2>&1; then
         print_warning "Process still running, force killing..."
         kill -9 "$PID"
     fi
-    
+
     print_status "Server stopped successfully"
 else
     print_warning "Process with PID $PID is not running"

@@ -1,13 +1,12 @@
 #!/bin/bash
 
-# RPI Mainpage Installation Script
-# This script sets up the RPI Mainpage service for autostart
+# RPI Mainpage Installation Script (systemd)
+# This script sets up the RPI Mainpage service for autostart.
 
 # Configuration
 APP_NAME="rpi-mainpage"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )" && pwd)"
 SERVICE_FILE="$APP_NAME.service"
-CURRENT_DIR="$REPO_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -39,14 +38,14 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-print_header "RPI Mainpage Installation"
+print_header "RPI Mainpage Installation (systemd)"
 
 # Check if PHP is installed
 if ! command -v php &> /dev/null; then
     print_warning "PHP is not installed. Installing PHP..."
     apt update
     apt install -y php php-cli php-json php-mbstring
-    
+
     if ! command -v php &> /dev/null; then
         print_error "Failed to install PHP"
         exit 1
@@ -55,9 +54,9 @@ if ! command -v php &> /dev/null; then
 fi
 
 print_status "Using repository directory: $REPO_DIR"
-chmod +x "$REPO_DIR/start_server.sh" || true
-chmod +x "$REPO_DIR/stop_server.sh" || true
-chmod +x "$REPO_DIR/install.sh" || true
+chmod +x "$REPO_DIR/systemd_start_server.sh" || true
+chmod +x "$REPO_DIR/systemd_stop_server.sh" || true
+chmod +x "$REPO_DIR/systemd_install.sh" || true
 
 # Install composer dependencies if composer is available
 if command -v composer &> /dev/null; then
@@ -73,35 +72,24 @@ fi
 # Install systemd service
 print_status "Installing systemd service..."
 TARGET_SERVICE="/etc/systemd/system/$SERVICE_FILE"
-cat > "$TARGET_SERVICE" <<EOF
-[Unit]
-Description=RPI Mainpage PHP Server
-After=network.target
-Wants=network.target
 
-[Service]
-Type=forking
-User=root
-Group=root
-WorkingDirectory=$REPO_DIR
-ExecStart=$REPO_DIR/start_server.sh
-ExecStop=$REPO_DIR/stop_server.sh
-PIDFile=/var/run/rpi-mainpage.pid
-Restart=always
-RestartSec=10
-StandardOutput=append:/var/log/rpi-mainpage.log
-StandardError=append:/var/log/rpi-mainpage.log
+TEMPLATE_SERVICE="$REPO_DIR/rpi-mainpage.service"
+if [ ! -f "$TEMPLATE_SERVICE" ]; then
+    print_error "Service template not found: $TEMPLATE_SERVICE"
+    exit 1
+fi
 
-# Security settings
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ReadWritePaths=/var/log /var/run $REPO_DIR
-ProtectHome=yes
+escape_sed_replacement() {
+    # Escape '/', '&' and the chosen sed delimiter '|'
+    printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
+}
 
-[Install]
-WantedBy=multi-user.target
-EOF
+REPO_DIR_ESCAPED="$(escape_sed_replacement "$REPO_DIR")"
+
+# Replace placeholder paths in the template service file
+sed "s|/path/to/rpi-mainpage|$REPO_DIR_ESCAPED|g" "$TEMPLATE_SERVICE" > "$TARGET_SERVICE"
+
+chmod 644 "$TARGET_SERVICE"
 
 # Reload systemd
 systemctl daemon-reload
@@ -109,9 +97,6 @@ systemctl daemon-reload
 # Enable service for autostart
 print_status "Enabling service for autostart..."
 systemctl enable "$APP_NAME.service"
-
-# Set proper permissions
-chmod 644 "$TARGET_SERVICE"
 
 print_header "Installation Complete"
 print_status "Application directory: $REPO_DIR"

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RPI Mainpage Server Startup Script
+# RPI Mainpage Server Startup Script (systemd)
 # This script starts the PHP built-in server for the RPI mainpage application
 
 # Configuration
@@ -52,7 +52,7 @@ if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p "$PID" > /dev/null 2>&1; then
         print_warning "Server is already running with PID $PID"
-        print_status "You can stop it with: sudo killall php"
+        print_status "You can stop it with: sudo kill $PID"
         exit 1
     else
         # Remove stale PID file

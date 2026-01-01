@@ -148,6 +148,15 @@ $router->addRoute('POST', '/file-index/delete', function () {
     $fileIndexManager = new FileIndexManager();
     $catalogPath = $fileIndexManager->getCatalogPath();
 
+    $isWithinBase = function (string $targetPath, string $basePath): bool {
+        $basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
+        $targetPath = rtrim($targetPath, DIRECTORY_SEPARATOR);
+        if ($targetPath === $basePath) {
+            return true;
+        }
+        return str_starts_with($targetPath . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR);
+    };
+
     $path = (string)($_POST['path'] ?? '');
     $returnPath = (string)($_POST['returnPath'] ?? '');
 
@@ -177,11 +186,11 @@ $router->addRoute('POST', '/file-index/delete', function () {
 
     $fullPath = rtrim($catalogPath, '/') . '/' . $cleanPath;
 
-    // Ensure the target lives under the catalog directory (validate by parent dir realpath)
+    // Ensure the target lives under the catalog directory
     $parentReal = realpath(dirname($fullPath));
-    if ($parentReal === false || strncmp($parentReal, $baseReal, strlen($baseReal)) !== 0) {
+    if ($parentReal === false || !$isWithinBase($parentReal, $baseReal)) {
         $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied'));
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied: path is outside catalog'));
         exit;
     }
 
@@ -197,9 +206,21 @@ $router->addRoute('POST', '/file-index/delete', function () {
         exit;
     }
 
+    // If it's a normal file, validate its realpath too (symlinks may legitimately point elsewhere)
+    if (!is_link($fullPath)) {
+        $fullReal = realpath($fullPath);
+        if ($fullReal === false || !$isWithinBase($fullReal, $baseReal)) {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied: file is outside catalog'));
+            exit;
+        }
+    }
+
     if (!@unlink($fullPath)) {
+        $lastError = error_get_last();
+        $reason = $lastError['message'] ?? 'unknown error';
         $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Failed to delete file'));
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Failed to delete file: ' . $reason));
         exit;
     }
 
