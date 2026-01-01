@@ -219,6 +219,14 @@
                                            download>
                                             💾 Download
                                         </a>
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger ms-1 btn-delete-file"
+                                                data-file-path="<?= htmlspecialchars($file['path']) ?>"
+                                                data-file-name="<?= htmlspecialchars($file['name']) ?>"
+                                                data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                title="Delete file">
+                                            🗑 Delete
+                                        </button>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -252,6 +260,32 @@ function showDownloadProgress(button) {
     }, 3000);
 }
 </script>
+
+<!-- Delete File Confirmation Modal -->
+<div class="modal fade" id="deleteFileModal" tabindex="-1" aria-labelledby="deleteFileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteFileModalLabel">Confirm deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="/file-index/delete" method="POST">
+                <div class="modal-body">
+                    <p class="mb-2">Delete file:</p>
+                    <p class="mb-0"><strong id="deleteFileName"></strong></p>
+                    <p class="text-muted small mb-0">This action cannot be undone.</p>
+
+                    <input type="hidden" name="path" id="deleteFilePath" value="">
+                    <input type="hidden" name="returnPath" id="deleteReturnPath" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <!-- Video Player Modal -->
 <div class="modal fade video-modal" id="videoPlayerModal" tabindex="-1" aria-labelledby="videoPlayerModalLabel" aria-hidden="true">
@@ -521,6 +555,32 @@ document.addEventListener('DOMContentLoaded', function() {
         if (videoModal) {
             videoModal.show();
         }
+    });
+
+    // --- Delete file modal ---
+    const deleteModalElement = document.getElementById('deleteFileModal');
+    const deleteFileNameEl = document.getElementById('deleteFileName');
+    const deleteFilePathInput = document.getElementById('deleteFilePath');
+    const deleteReturnPathInput = document.getElementById('deleteReturnPath');
+
+    let deleteModal = null;
+    if (deleteModalElement && typeof bootstrap !== 'undefined') {
+        deleteModal = new bootstrap.Modal(deleteModalElement);
+    }
+
+    document.addEventListener('click', function(e) {
+        const deleteBtn = e.target.closest('.btn-delete-file');
+        if (!deleteBtn || !deleteModal) return;
+
+        const filePath = deleteBtn.dataset.filePath || '';
+        const fileName = deleteBtn.dataset.fileName || '';
+        const returnPath = deleteBtn.dataset.returnPath || '';
+
+        deleteFileNameEl.textContent = fileName;
+        deleteFilePathInput.value = filePath;
+        deleteReturnPathInput.value = returnPath;
+
+        deleteModal.show();
     });
 });
 </script>

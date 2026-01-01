@@ -67,6 +67,9 @@ $router->addRoute('GET', '/file-index', function () {
     
     $files = [];
     $errors = [];
+    if (!empty($_GET['error'])) {
+        $errors[] = (string)$_GET['error'];
+    }
     $breadcrumbs = [];
     
     // Build breadcrumbs
@@ -139,6 +142,70 @@ $router->addRoute('GET', '/file-index', function () {
         'pinnedPaths' => array_column($pinnedDirectories, null, 'path')
     ];
 }, $app->appRoot . '/templates/file_index.html.php');
+
+// Delete file route
+$router->addRoute('POST', '/file-index/delete', function () {
+    $fileIndexManager = new FileIndexManager();
+    $catalogPath = $fileIndexManager->getCatalogPath();
+
+    $path = (string)($_POST['path'] ?? '');
+    $returnPath = (string)($_POST['returnPath'] ?? '');
+
+    $redirectUrl = '/file-index';
+    if ($returnPath !== '') {
+        $redirectUrl .= '?path=' . urlencode(trim($returnPath, '/'));
+    }
+
+    $path = trim($path);
+    if ($path === '') {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File path is required'));
+        exit;
+    }
+
+    // Prevent directory traversal attacks
+    $cleanPath = trim($path, '/');
+    $cleanPath = str_replace(["../", ".\\", "..\\"], '', $cleanPath);
+    $cleanPath = str_replace("\0", '', $cleanPath);
+
+    $baseReal = realpath($catalogPath);
+    if ($baseReal === false) {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Catalog path is not accessible'));
+        exit;
+    }
+
+    $fullPath = rtrim($catalogPath, '/') . '/' . $cleanPath;
+
+    // Ensure the target lives under the catalog directory (validate by parent dir realpath)
+    $parentReal = realpath(dirname($fullPath));
+    if ($parentReal === false || strncmp($parentReal, $baseReal, strlen($baseReal)) !== 0) {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied'));
+        exit;
+    }
+
+    if (!file_exists($fullPath) && !is_link($fullPath)) {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File not found'));
+        exit;
+    }
+
+    if (is_dir($fullPath)) {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Cannot delete directories'));
+        exit;
+    }
+
+    if (!@unlink($fullPath)) {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Failed to delete file'));
+        exit;
+    }
+
+    header('Location: ' . $redirectUrl);
+    exit;
+});
 
 // Pin directory route
 $router->addRoute('POST', '/file-index/pin', function () {
