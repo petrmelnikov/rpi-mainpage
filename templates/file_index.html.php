@@ -678,7 +678,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || !data.ok) {
-            const err = (data && data.error) ? data.error : 'Failed to load existing NFO';
+            let err = (data && data.error) ? data.error : '';
+            if (!err) {
+                const text = await res.text().catch(() => '');
+                err = text ? text.slice(0, 300) : 'Failed to load existing NFO';
+            }
             throw new Error(err);
         }
         return data;
@@ -700,7 +704,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || !data.ok) {
-            const err = (data && data.error) ? data.error : 'Failed to save NFO';
+            let err = (data && data.error) ? data.error : '';
+            if (!err) {
+                const text = await res.text().catch(() => '');
+                err = text ? text.slice(0, 300) : 'Failed to save NFO';
+            }
             throw new Error(err);
         }
         return data;

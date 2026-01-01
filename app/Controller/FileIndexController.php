@@ -8,6 +8,21 @@ use App\Support\PathGuard;
 
 class FileIndexController
 {
+    private static function xmlEscape(string $value): string
+    {
+        return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    }
+
+    private static function parseNfoField(string $content, string $fieldName): string
+    {
+        $pattern = '/<' . preg_quote($fieldName, '/') . '>\s*(.*?)\s*<\/' . preg_quote($fieldName, '/') . '>/si';
+        if (!preg_match($pattern, $content, $m)) {
+            return '';
+        }
+        $raw = (string)$m[1];
+        return html_entity_decode($raw, ENT_QUOTES, 'UTF-8');
+    }
+
     public function registerRoutes(Router $router, string $appRoot): void
     {
         $router->addRoute('GET', '/file-index', [$this, 'index'], $appRoot . '/templates/file_index.html.php');
@@ -524,13 +539,18 @@ class FileIndexController
         if ($exists && is_readable($nfoFullPath)) {
             $content = file_get_contents($nfoFullPath);
             if ($content !== false && trim($content) !== '') {
-                libxml_use_internal_errors(true);
-                $xml = simplexml_load_string($content);
-                if ($xml !== false) {
-                    $title = isset($xml->title) ? (string)$xml->title : '';
-                    $year = isset($xml->year) ? (string)$xml->year : '';
+                if (function_exists('simplexml_load_string')) {
+                    libxml_use_internal_errors(true);
+                    $xml = simplexml_load_string($content);
+                    if ($xml !== false) {
+                        $title = isset($xml->title) ? (string)$xml->title : '';
+                        $year = isset($xml->year) ? (string)$xml->year : '';
+                    }
+                    libxml_clear_errors();
+                } else {
+                    $title = self::parseNfoField($content, 'title');
+                    $year = self::parseNfoField($content, 'year');
                 }
-                libxml_clear_errors();
             }
         }
 
@@ -608,27 +628,14 @@ class FileIndexController
             $nfoRelativePath = PathGuard::segmentsToRelativePath(array_merge(array_slice($segments, 0, -1), [$base . '.nfo']));
         }
 
-        $dom = new \DOMDocument('1.0', 'UTF-8');
-        $dom->formatOutput = true;
-        $root = $dom->createElement($isDir ? 'tvshow' : 'movie');
-        $dom->appendChild($root);
-
-        $titleEl = $dom->createElement('title');
-        $titleEl->appendChild($dom->createTextNode($title));
-        $root->appendChild($titleEl);
-
+        $rootName = $isDir ? 'tvshow' : 'movie';
+        $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        $xml .= '<' . $rootName . ">\n";
+        $xml .= '  <title>' . self::xmlEscape($title) . "</title>\n";
         if ($year !== '') {
-            $yearEl = $dom->createElement('year');
-            $yearEl->appendChild($dom->createTextNode($year));
-            $root->appendChild($yearEl);
+            $xml .= '  <year>' . self::xmlEscape($year) . "</year>\n";
         }
-
-        $xml = $dom->saveXML();
-        if ($xml === false) {
-            http_response_code(500);
-            echo json_encode(['ok' => false, 'error' => 'Failed to generate XML']);
-            exit;
-        }
+        $xml .= '</' . $rootName . ">\n";
 
         $parentDir = dirname($nfoFullPath);
         if (!is_dir($parentDir) || !is_writable($parentDir)) {
