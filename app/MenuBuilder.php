@@ -9,7 +9,7 @@ class MenuBuilder
     private string $configPath = '/config/top_menu.json';
     private ?array $config = null;
 
-    public function __construct(string $configPath = null)
+    public function __construct(?string $configPath = null)
     {
         if ($configPath) {
             $this->configPath = $configPath;
