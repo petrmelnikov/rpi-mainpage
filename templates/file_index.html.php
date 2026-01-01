@@ -103,7 +103,6 @@
                         <tr>
                             <th>Type</th>
                             <th>Name</th>
-                            <th>Path</th>
                             <th>Size</th>
                             <th>Modified</th>
                             <th>Actions</th>
@@ -149,9 +148,6 @@
                                             <?= htmlspecialchars($file['name']) ?>
                                         <?php endif; ?>
                                     </span>
-                                </td>
-                                <td class="small text-muted">
-                                    <?= htmlspecialchars($file['path']) ?>
                                 </td>
                                 <td>
                                     <?php if (!$file['isDir'] && $file['size'] > 0): ?>
