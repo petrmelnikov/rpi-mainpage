@@ -148,15 +148,6 @@ $router->addRoute('POST', '/file-index/delete', function () {
     $fileIndexManager = new FileIndexManager();
     $catalogPath = $fileIndexManager->getCatalogPath();
 
-    $isWithinBase = function (string $targetPath, string $basePath): bool {
-        $basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
-        $targetPath = rtrim($targetPath, DIRECTORY_SEPARATOR);
-        if ($targetPath === $basePath) {
-            return true;
-        }
-        return str_starts_with($targetPath . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR);
-    };
-
     $path = (string)($_POST['path'] ?? '');
     $returnPath = (string)($_POST['returnPath'] ?? '');
 
@@ -177,22 +168,17 @@ $router->addRoute('POST', '/file-index/delete', function () {
     $cleanPath = str_replace(["../", ".\\", "..\\"], '', $cleanPath);
     $cleanPath = str_replace("\0", '', $cleanPath);
 
-    $baseReal = realpath($catalogPath);
-    if ($baseReal === false) {
-        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Catalog path is not accessible'));
-        exit;
+    // Segment-based validation (prevents ../ traversal; allows symlinked dirs under catalog)
+    $segments = array_values(array_filter(explode('/', str_replace('\\', '/', $cleanPath)), fn($s) => $s !== ''));
+    foreach ($segments as $seg) {
+        if ($seg === '.' || $seg === '..') {
+            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Invalid path'));
+            exit;
+        }
     }
 
-    $fullPath = rtrim($catalogPath, '/') . '/' . $cleanPath;
-
-    // Ensure the target lives under the catalog directory
-    $parentReal = realpath(dirname($fullPath));
-    if ($parentReal === false || !$isWithinBase($parentReal, $baseReal)) {
-        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied: path is outside catalog'));
-        exit;
-    }
+    $fullPath = rtrim($catalogPath, '/') . '/' . implode('/', $segments);
 
     if (!file_exists($fullPath) && !is_link($fullPath)) {
         $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
@@ -204,16 +190,6 @@ $router->addRoute('POST', '/file-index/delete', function () {
         $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
         header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Cannot delete directories'));
         exit;
-    }
-
-    // If it's a normal file, validate its realpath too (symlinks may legitimately point elsewhere)
-    if (!is_link($fullPath)) {
-        $fullReal = realpath($fullPath);
-        if ($fullReal === false || !$isWithinBase($fullReal, $baseReal)) {
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Access denied: file is outside catalog'));
-            exit;
-        }
     }
 
     if (!@unlink($fullPath)) {
