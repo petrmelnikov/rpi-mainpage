@@ -43,6 +43,29 @@ class FileIndexController
         return $name;
     }
 
+    private static function iniSizeToBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return 0;
+        }
+        $last = strtolower(substr($value, -1));
+        $num = $value;
+        $mult = 1;
+        if (in_array($last, ['k', 'm', 'g'], true)) {
+            $num = substr($value, 0, -1);
+            $mult = match ($last) {
+                'k' => 1024,
+                'm' => 1024 * 1024,
+                'g' => 1024 * 1024 * 1024,
+            };
+        }
+        if (!is_numeric($num)) {
+            return 0;
+        }
+        return (int)round(((float)$num) * $mult);
+    }
+
     private static function xmlEscape(string $value): string
     {
         return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -371,7 +394,27 @@ class FileIndexController
             self::redirectWithError($redirectUrl, 'Target directory is not writable');
         }
 
+        $fileUploadsEnabled = filter_var(ini_get('file_uploads'), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($fileUploadsEnabled === false) {
+            self::redirectWithError($redirectUrl, 'File uploads are disabled on the server (file_uploads=Off)');
+        }
+
         if (!isset($_FILES['file'])) {
+            $contentType = (string)($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '');
+            $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+            $postMaxBytes = self::iniSizeToBytes((string)ini_get('post_max_size'));
+
+            if ($postMaxBytes > 0 && $contentLength > $postMaxBytes) {
+                self::redirectWithError(
+                    $redirectUrl,
+                    'Upload failed: request body too large for server (post_max_size=' . ini_get('post_max_size') . ')'
+                );
+            }
+
+            if ($contentType !== '' && !str_starts_with(strtolower($contentType), 'multipart/form-data')) {
+                self::redirectWithError($redirectUrl, 'Upload failed: form must use multipart/form-data');
+            }
+
             self::redirectWithError($redirectUrl, 'No file uploaded');
         }
 
