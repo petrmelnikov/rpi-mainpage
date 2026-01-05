@@ -86,7 +86,11 @@ print_status "App directory: $APP_DIR"
 print_status "Log file: $LOG_FILE"
 
 # Start PHP server in background and capture PID
-nohup php -S "$PHP_HOST:$PHP_PORT" > "$LOG_FILE" 2>&1 &
+nohup php \
+    -d post_max_size=512M \
+    -d upload_max_filesize=512M \
+    -d memory_limit=1024M \
+    -S "$PHP_HOST:$PHP_PORT" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # Save PID to file

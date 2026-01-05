@@ -20,7 +20,7 @@ StandardError=append:/var/log/rpi-mainpage.log
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
-ReadWritePaths=/var/log /var/run /path/to/rpi-mainpage
+ReadWritePaths=/var/log /var/run /path/to/rpi-mainpage /home/pi/Documents
 ProtectHome=no
 
 [Install]

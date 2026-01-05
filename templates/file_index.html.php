@@ -78,12 +78,21 @@
                                 <label class="form-label mb-1">Upload file</label>
                             </div>
                             <div class="col-8">
-                                <input type="file" class="form-control" name="file" required>
-                                <input type="hidden" name="targetPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
-                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                <input type="file" class="form-control" name="file" id="chunkUploadFile" required>
+                                <input type="hidden" name="targetPath" id="chunkUploadTargetPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                <input type="hidden" name="returnPath" id="chunkUploadReturnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
                             </div>
                             <div class="col-4">
-                                <button type="submit" class="btn btn-success w-100">⬆️ Upload</button>
+                                <button type="submit" class="btn btn-success w-100" id="chunkUploadBtn">⬆️ Upload</button>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="alert alert-danger d-none mb-2" id="chunkUploadError"></div>
+                                <div class="small text-muted d-none" id="chunkUploadStatus"></div>
+                                <div class="progress d-none" style="height: 10px;" id="chunkUploadProgressWrap">
+                                    <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="chunkUploadProgressBar"></div>
+                                </div>
+                                <div class="small text-muted d-none" id="chunkUploadHint">Chunked upload with resume is enabled.</div>
                             </div>
                         </form>
                     </div>
@@ -939,6 +948,173 @@ document.addEventListener('DOMContentLoaded', function() {
                 overrideSaveBtn.disabled = false;
             }
         });
+    }
+
+    // --- Chunked upload ---
+    const uploadFileInput = document.getElementById('chunkUploadFile');
+    const uploadTargetPathInput = document.getElementById('chunkUploadTargetPath');
+    const uploadReturnPathInput = document.getElementById('chunkUploadReturnPath');
+    const uploadBtn = document.getElementById('chunkUploadBtn');
+    const uploadErrorEl = document.getElementById('chunkUploadError');
+    const uploadStatusEl = document.getElementById('chunkUploadStatus');
+    const uploadProgressWrap = document.getElementById('chunkUploadProgressWrap');
+    const uploadProgressBar = document.getElementById('chunkUploadProgressBar');
+    const uploadHintEl = document.getElementById('chunkUploadHint');
+
+    function setUploadError(msg) {
+        if (!uploadErrorEl) return;
+        if (!msg) {
+            uploadErrorEl.classList.add('d-none');
+            uploadErrorEl.textContent = '';
+            return;
+        }
+        uploadErrorEl.textContent = msg;
+        uploadErrorEl.classList.remove('d-none');
+    }
+
+    function setUploadStatus(msg) {
+        if (!uploadStatusEl) return;
+        if (!msg) {
+            uploadStatusEl.classList.add('d-none');
+            uploadStatusEl.textContent = '';
+            return;
+        }
+        uploadStatusEl.textContent = msg;
+        uploadStatusEl.classList.remove('d-none');
+    }
+
+    function setUploadProgress(pct) {
+        if (!uploadProgressWrap || !uploadProgressBar) return;
+        uploadProgressWrap.classList.remove('d-none');
+        const v = Math.max(0, Math.min(100, pct));
+        uploadProgressBar.style.width = v.toFixed(1) + '%';
+        uploadProgressBar.setAttribute('aria-valuenow', String(v));
+        uploadProgressBar.textContent = v >= 12 ? (v.toFixed(0) + '%') : '';
+    }
+
+    async function postForm(url, params) {
+        const body = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+            body.set(k, String(v));
+        }
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Accept': 'application/json'
+            },
+            body
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+            const err = (data && data.error) ? String(data.error) : ('Request failed: ' + res.status);
+            throw new Error(err);
+        }
+        return data;
+    }
+
+    async function uploadChunk(uploadId, chunkIndex, blob, fileName, attempt = 1) {
+        const fd = new FormData();
+        fd.set('uploadId', uploadId);
+        fd.set('chunkIndex', String(chunkIndex));
+        fd.set('chunk', blob, fileName);
+
+        const res = await fetch('/file-index/upload/chunk', {
+            method: 'POST',
+            body: fd,
+            headers: { 'Accept': 'application/json' }
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+            const err = (data && data.error) ? String(data.error) : ('Chunk upload failed: ' + res.status);
+            if (attempt < 3) {
+                await new Promise(r => setTimeout(r, 300 * attempt));
+                return uploadChunk(uploadId, chunkIndex, blob, fileName, attempt + 1);
+            }
+            throw new Error(err);
+        }
+        return data;
+    }
+
+    async function runChunkedUpload(file, targetPath, returnPath) {
+        const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB
+
+        setUploadError('');
+        if (uploadHintEl) uploadHintEl.classList.remove('d-none');
+        setUploadStatus('Initializing upload…');
+        setUploadProgress(0);
+
+        const init = await postForm('/file-index/upload/init', {
+            targetPath,
+            fileName: file.name,
+            fileSize: file.size,
+            lastModified: file.lastModified || 0,
+            chunkSize: CHUNK_SIZE,
+        });
+
+        const uploadId = init.uploadId;
+        const chunkSize = init.chunkSize;
+        const totalChunks = init.totalChunks;
+        const received = Array.isArray(init.received) ? init.received : [];
+        const receivedSet = new Set(received.map(n => Number(n)));
+
+        let done = receivedSet.size;
+        setUploadStatus(`Uploading ${file.name} (${done}/${totalChunks} chunks ready)…`);
+        setUploadProgress((done / totalChunks) * 100);
+
+        for (let i = 0; i < totalChunks; i++) {
+            if (receivedSet.has(i)) {
+                continue;
+            }
+            const start = i * chunkSize;
+            const end = Math.min(file.size, start + chunkSize);
+            const blob = file.slice(start, end);
+
+            setUploadStatus(`Uploading chunk ${i + 1}/${totalChunks}…`);
+            await uploadChunk(uploadId, i, blob, file.name);
+
+            receivedSet.add(i);
+            done++;
+            setUploadProgress((done / totalChunks) * 100);
+        }
+
+        setUploadStatus('Finalizing…');
+        await postForm('/file-index/upload/finish', { uploadId });
+
+        // Refresh directory view
+        const url = '/file-index' + (returnPath ? ('?path=' + encodeURIComponent(returnPath)) : '');
+        window.location.href = url;
+    }
+
+    // Intercept upload form submit for resumable chunked upload.
+    if (uploadFileInput && uploadBtn && uploadTargetPathInput && uploadReturnPathInput) {
+        const uploadForm = uploadBtn.closest('form');
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', async function(e) {
+                // If browser doesn't support required APIs, fall back to normal upload.
+                if (!window.fetch || !window.FormData || !uploadFileInput.files || uploadFileInput.files.length === 0) {
+                    return;
+                }
+                e.preventDefault();
+
+                const file = uploadFileInput.files[0];
+                const targetPath = uploadTargetPathInput.value || '';
+                const returnPath = uploadReturnPathInput.value || '';
+
+                uploadBtn.disabled = true;
+                uploadFileInput.disabled = true;
+
+                try {
+                    await runChunkedUpload(file, targetPath, returnPath);
+                } catch (err) {
+                    setUploadError(err && err.message ? err.message : 'Upload failed');
+                    setUploadStatus('');
+                    // Keep progress visible for debugging
+                    uploadBtn.disabled = false;
+                    uploadFileInput.disabled = false;
+                }
+            });
+        }
     }
 });
 </script>

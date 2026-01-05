@@ -66,6 +66,91 @@ class FileIndexController
         return (int)round(((float)$num) * $mult);
     }
 
+    private static function jsonResponse(array $payload, int $statusCode = 200): void
+    {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($payload);
+        exit;
+    }
+
+    private static function getUploadBaseDir(): string
+    {
+        $candidates = [];
+
+        // Prefer RAM-backed tmpfs on Linux if available.
+        $candidates[] = '/dev/shm/rpi-mainpage-upload';
+
+        $tmp = rtrim((string)sys_get_temp_dir(), '/');
+        if ($tmp !== '') {
+            $candidates[] = $tmp . '/rpi-mainpage-upload';
+        }
+
+        foreach ($candidates as $dir) {
+            if (@is_dir($dir) || @mkdir($dir, 0775, true)) {
+                if (@is_writable($dir)) {
+                    return $dir;
+                }
+            }
+        }
+
+        // Fallback to current working directory (should be writable in dev).
+        $cwd = getcwd();
+        $fallback = rtrim((string)$cwd, '/') . '/tmp/rpi-mainpage-upload';
+        @mkdir($fallback, 0775, true);
+        return $fallback;
+    }
+
+    private static function validateUploadId(string $uploadId): string
+    {
+        $uploadId = trim($uploadId);
+        if (!preg_match('/^[a-f0-9]{40}$/', $uploadId)) {
+            throw new \InvalidArgumentException('Invalid uploadId');
+        }
+        return $uploadId;
+    }
+
+    private static function getUploadDir(string $uploadId): string
+    {
+        $base = self::getUploadBaseDir();
+        return rtrim($base, '/') . '/' . $uploadId;
+    }
+
+    private static function writeUploadMeta(string $uploadDir, array $meta): void
+    {
+        @mkdir($uploadDir, 0775, true);
+        file_put_contents($uploadDir . '/meta.json', json_encode($meta, JSON_PRETTY_PRINT), LOCK_EX);
+    }
+
+    private static function readUploadMeta(string $uploadDir): array
+    {
+        $path = $uploadDir . '/meta.json';
+        if (!is_file($path)) {
+            throw new \RuntimeException('Upload not initialized');
+        }
+        $json = file_get_contents($path);
+        $meta = json_decode((string)$json, true);
+        if (!is_array($meta)) {
+            throw new \RuntimeException('Upload metadata is corrupted');
+        }
+        return $meta;
+    }
+
+    private static function listReceivedChunks(string $uploadDir, int $totalChunks): array
+    {
+        $received = [];
+        if (!is_dir($uploadDir)) {
+            return $received;
+        }
+        for ($i = 0; $i < $totalChunks; $i++) {
+            $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$i, 6, '0', STR_PAD_LEFT) . '.part';
+            if (is_file($chunkPath)) {
+                $received[] = $i;
+            }
+        }
+        return $received;
+    }
+
     private static function xmlEscape(string $value): string
     {
         return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -89,6 +174,10 @@ class FileIndexController
         $router->addRoute('POST', '/file-index/dir/delete', [$this, 'deleteDirectory']);
         $router->addRoute('POST', '/file-index/dir/rename', [$this, 'renameDirectory']);
         $router->addRoute('POST', '/file-index/upload', [$this, 'uploadFile']);
+        $router->addRoute('POST', '/file-index/upload/init', [$this, 'uploadInit']);
+        $router->addRoute('POST', '/file-index/upload/status', [$this, 'uploadStatus']);
+        $router->addRoute('POST', '/file-index/upload/chunk', [$this, 'uploadChunk']);
+        $router->addRoute('POST', '/file-index/upload/finish', [$this, 'uploadFinish']);
         $router->addRoute('POST', '/file-index/pin', [$this, 'pin']);
         $router->addRoute('POST', '/file-index/unpin', [$this, 'unpin']);
         $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
@@ -460,6 +549,357 @@ class FileIndexController
 
         header('Location: ' . $redirectUrl);
         exit;
+    }
+
+    /**
+     * Chunked upload init: returns uploadId + received chunks for resume.
+     * Expects: targetPath, fileName, fileSize, lastModified (optional), chunkSize (optional).
+     */
+    public function uploadInit(): void
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $targetPath = (string)($_POST['targetPath'] ?? '');
+        $fileName = (string)($_POST['fileName'] ?? '');
+        $fileSize = (string)($_POST['fileSize'] ?? '0');
+        $lastModified = (string)($_POST['lastModified'] ?? '0');
+        $chunkSize = (string)($_POST['chunkSize'] ?? '');
+
+        try {
+            $dirSegments = PathGuard::toSegmentsAllowEmpty($targetPath);
+            $safeName = self::validateSinglePathSegment(basename($fileName), 'File name');
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $sizeInt = (int)$fileSize;
+        if ($sizeInt <= 0) {
+            self::jsonResponse(['ok' => false, 'error' => 'Invalid file size'], 400);
+        }
+
+        $chunkSizeInt = (int)$chunkSize;
+        if ($chunkSizeInt <= 0) {
+            $chunkSizeInt = 4 * 1024 * 1024; // 4MB default
+        }
+        $chunkSizeInt = max(256 * 1024, min($chunkSizeInt, 50 * 1024 * 1024));
+        $totalChunks = (int)ceil($sizeInt / $chunkSizeInt);
+
+        $targetDir = PathGuard::joinCatalog($catalogPath, $dirSegments);
+        if (!is_dir($targetDir)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Target directory not found'], 404);
+        }
+        if (!is_writable($targetDir)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Target directory is not writable'], 403);
+        }
+
+        $uploadId = sha1(
+            PathGuard::segmentsToRelativePath($dirSegments) . "\n" .
+            $safeName . "\n" .
+            (string)$sizeInt . "\n" .
+            (string)((int)$lastModified) . "\n" .
+            (string)$chunkSizeInt
+        );
+
+        $uploadDir = self::getUploadDir($uploadId);
+        @mkdir($uploadDir, 0775, true);
+
+        $metaPath = $uploadDir . '/meta.json';
+        if (!is_file($metaPath)) {
+            $meta = [
+                'uploadId' => $uploadId,
+                'targetPath' => PathGuard::segmentsToRelativePath($dirSegments),
+                'fileName' => $safeName,
+                'fileSize' => $sizeInt,
+                'lastModified' => (int)$lastModified,
+                'chunkSize' => $chunkSizeInt,
+                'totalChunks' => $totalChunks,
+                'createdAt' => time(),
+            ];
+            self::writeUploadMeta($uploadDir, $meta);
+        } else {
+            // Validate that existing meta matches; otherwise refuse to resume.
+            try {
+                $meta = self::readUploadMeta($uploadDir);
+            } catch (\RuntimeException $e) {
+                self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 500);
+            }
+            $expected = [
+                'targetPath' => PathGuard::segmentsToRelativePath($dirSegments),
+                'fileName' => $safeName,
+                'fileSize' => $sizeInt,
+                'chunkSize' => $chunkSizeInt,
+                'totalChunks' => $totalChunks,
+            ];
+            foreach ($expected as $k => $v) {
+                if (!isset($meta[$k]) || $meta[$k] !== $v) {
+                    self::jsonResponse(['ok' => false, 'error' => 'Existing uploadId metadata does not match file'], 409);
+                }
+            }
+        }
+
+        $received = self::listReceivedChunks($uploadDir, $totalChunks);
+        self::jsonResponse([
+            'ok' => true,
+            'uploadId' => $uploadId,
+            'chunkSize' => $chunkSizeInt,
+            'totalChunks' => $totalChunks,
+            'received' => $received,
+        ]);
+    }
+
+    public function uploadStatus(): void
+    {
+        $uploadId = (string)($_POST['uploadId'] ?? '');
+        try {
+            $uploadId = self::validateUploadId($uploadId);
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $uploadDir = self::getUploadDir($uploadId);
+        try {
+            $meta = self::readUploadMeta($uploadDir);
+        } catch (\RuntimeException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        $totalChunks = (int)($meta['totalChunks'] ?? 0);
+        if ($totalChunks <= 0) {
+            self::jsonResponse(['ok' => false, 'error' => 'Upload metadata invalid'], 500);
+        }
+
+        $received = self::listReceivedChunks($uploadDir, $totalChunks);
+        $bytesReceived = 0;
+        foreach ($received as $i) {
+            $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$i, 6, '0', STR_PAD_LEFT) . '.part';
+            $bytesReceived += (int)@filesize($chunkPath);
+        }
+
+        self::jsonResponse([
+            'ok' => true,
+            'uploadId' => $uploadId,
+            'meta' => $meta,
+            'received' => $received,
+            'bytesReceived' => $bytesReceived,
+        ]);
+    }
+
+    /**
+     * Receives one chunk via multipart: field name "chunk".
+     * Expects: uploadId, chunkIndex.
+     */
+    public function uploadChunk(): void
+    {
+        $uploadId = (string)($_POST['uploadId'] ?? '');
+        $chunkIndex = (string)($_POST['chunkIndex'] ?? '');
+
+        try {
+            $uploadId = self::validateUploadId($uploadId);
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        if (!is_numeric($chunkIndex)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Invalid chunkIndex'], 400);
+        }
+        $chunkIndexInt = (int)$chunkIndex;
+
+        $uploadDir = self::getUploadDir($uploadId);
+        try {
+            $meta = self::readUploadMeta($uploadDir);
+        } catch (\RuntimeException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        $totalChunks = (int)($meta['totalChunks'] ?? 0);
+        $chunkSize = (int)($meta['chunkSize'] ?? 0);
+        $fileSize = (int)($meta['fileSize'] ?? 0);
+
+        if ($totalChunks <= 0 || $chunkSize <= 0 || $fileSize <= 0) {
+            self::jsonResponse(['ok' => false, 'error' => 'Upload metadata invalid'], 500);
+        }
+        if ($chunkIndexInt < 0 || $chunkIndexInt >= $totalChunks) {
+            self::jsonResponse(['ok' => false, 'error' => 'chunkIndex out of range'], 400);
+        }
+
+        if (!isset($_FILES['chunk'])) {
+            self::jsonResponse(['ok' => false, 'error' => 'Missing chunk file'], 400);
+        }
+        $upload = $_FILES['chunk'];
+        $err = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_OK) {
+            $msg = match ($err) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Uploaded chunk is too large',
+                UPLOAD_ERR_PARTIAL => 'Chunk upload was incomplete',
+                UPLOAD_ERR_NO_FILE => 'Missing chunk file',
+                UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder on server',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write uploaded chunk',
+                UPLOAD_ERR_EXTENSION => 'Chunk upload blocked by server extension',
+                default => 'Chunk upload failed',
+            };
+            self::jsonResponse(['ok' => false, 'error' => $msg], 400);
+        }
+
+        $tmpName = (string)($upload['tmp_name'] ?? '');
+        if (!is_uploaded_file($tmpName)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Invalid uploaded chunk'], 400);
+        }
+
+        $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$chunkIndexInt, 6, '0', STR_PAD_LEFT) . '.part';
+
+        // Validate chunk size (allow last chunk to be smaller).
+        $expectedMax = $chunkSize;
+        $expectedMin = 1;
+        if ($chunkIndexInt === $totalChunks - 1) {
+            $lastExpected = $fileSize - ($chunkSize * ($totalChunks - 1));
+            $expectedMax = max(1, $lastExpected);
+        }
+
+        $actualSize = (int)@filesize($tmpName);
+        if ($actualSize < $expectedMin || $actualSize > $expectedMax) {
+            self::jsonResponse([
+                'ok' => false,
+                'error' => 'Unexpected chunk size',
+                'expectedMax' => $expectedMax,
+                'actual' => $actualSize,
+            ], 400);
+        }
+
+        @mkdir($uploadDir, 0775, true);
+        // Overwrite is allowed for retries.
+        if (is_file($chunkPath)) {
+            @unlink($chunkPath);
+        }
+
+        if (!@move_uploaded_file($tmpName, $chunkPath)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            self::jsonResponse(['ok' => false, 'error' => 'Failed to store chunk: ' . $reason], 500);
+        }
+
+        self::jsonResponse(['ok' => true, 'uploadId' => $uploadId, 'chunkIndex' => $chunkIndexInt]);
+    }
+
+    /**
+     * Finish upload: validates all chunks exist and assembles final file.
+     */
+    public function uploadFinish(): void
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $uploadId = (string)($_POST['uploadId'] ?? '');
+        try {
+            $uploadId = self::validateUploadId($uploadId);
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $uploadDir = self::getUploadDir($uploadId);
+        try {
+            $meta = self::readUploadMeta($uploadDir);
+        } catch (\RuntimeException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 404);
+        }
+
+        $targetPath = (string)($meta['targetPath'] ?? '');
+        $fileName = (string)($meta['fileName'] ?? '');
+        $fileSize = (int)($meta['fileSize'] ?? 0);
+        $chunkSize = (int)($meta['chunkSize'] ?? 0);
+        $totalChunks = (int)($meta['totalChunks'] ?? 0);
+
+        if ($fileName === '' || $fileSize <= 0 || $chunkSize <= 0 || $totalChunks <= 0) {
+            self::jsonResponse(['ok' => false, 'error' => 'Upload metadata invalid'], 500);
+        }
+
+        try {
+            $dirSegments = PathGuard::toSegmentsAllowEmpty($targetPath);
+            $safeName = self::validateSinglePathSegment($fileName, 'File name');
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $targetDir = PathGuard::joinCatalog($catalogPath, $dirSegments);
+        if (!is_dir($targetDir)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Target directory not found'], 404);
+        }
+        if (!is_writable($targetDir)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Target directory is not writable'], 403);
+        }
+
+        $destPath = PathGuard::joinCatalog($catalogPath, array_merge($dirSegments, [$safeName]));
+        if (file_exists($destPath)) {
+            self::jsonResponse(['ok' => false, 'error' => 'File already exists'], 409);
+        }
+
+        // Validate all chunks exist.
+        $missing = [];
+        for ($i = 0; $i < $totalChunks; $i++) {
+            $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$i, 6, '0', STR_PAD_LEFT) . '.part';
+            if (!is_file($chunkPath)) {
+                $missing[] = $i;
+            }
+        }
+        if (count($missing) > 0) {
+            self::jsonResponse(['ok' => false, 'error' => 'Missing chunks', 'missing' => $missing], 409);
+        }
+
+        // Assemble.
+        $out = @fopen($destPath, 'wb');
+        if (!$out) {
+            self::jsonResponse(['ok' => false, 'error' => 'Failed to create destination file'], 500);
+        }
+
+        $written = 0;
+        for ($i = 0; $i < $totalChunks; $i++) {
+            $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$i, 6, '0', STR_PAD_LEFT) . '.part';
+            $in = @fopen($chunkPath, 'rb');
+            if (!$in) {
+                fclose($out);
+                @unlink($destPath);
+                self::jsonResponse(['ok' => false, 'error' => 'Failed to read chunk ' . $i], 500);
+            }
+
+            while (!feof($in)) {
+                $buf = fread($in, 1024 * 1024);
+                if ($buf === false) {
+                    fclose($in);
+                    fclose($out);
+                    @unlink($destPath);
+                    self::jsonResponse(['ok' => false, 'error' => 'Failed while reading chunk ' . $i], 500);
+                }
+                if ($buf === '') {
+                    break;
+                }
+                $w = fwrite($out, $buf);
+                if ($w === false) {
+                    fclose($in);
+                    fclose($out);
+                    @unlink($destPath);
+                    self::jsonResponse(['ok' => false, 'error' => 'Failed while writing destination file'], 500);
+                }
+                $written += $w;
+            }
+            fclose($in);
+        }
+
+        fclose($out);
+
+        if ($written !== $fileSize) {
+            @unlink($destPath);
+            self::jsonResponse(['ok' => false, 'error' => 'Assembled file size mismatch', 'written' => $written, 'expected' => $fileSize], 500);
+        }
+
+        // Cleanup chunks + meta.
+        for ($i = 0; $i < $totalChunks; $i++) {
+            $chunkPath = $uploadDir . '/chunk_' . str_pad((string)$i, 6, '0', STR_PAD_LEFT) . '.part';
+            @unlink($chunkPath);
+        }
+        @unlink($uploadDir . '/meta.json');
+        @rmdir($uploadDir);
+
+        self::jsonResponse(['ok' => true, 'fileName' => $safeName, 'path' => PathGuard::segmentsToRelativePath(array_merge($dirSegments, [$safeName]))]);
     }
 
     public function pin(): string
