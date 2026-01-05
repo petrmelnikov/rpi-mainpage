@@ -52,6 +52,44 @@
         <p class="text-muted">
             Current Path: <code><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
         </p>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-lg-6">
+                        <form action="/file-index/dir/create" method="POST" class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label mb-1">Create directory</label>
+                            </div>
+                            <div class="col-8">
+                                <input type="text" class="form-control" name="dirName" placeholder="New folder name" autocomplete="off" required>
+                                <input type="hidden" name="parentPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                            </div>
+                            <div class="col-4">
+                                <button type="submit" class="btn btn-primary w-100">📁 Create</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-lg-6">
+                        <form action="/file-index/upload" method="POST" enctype="multipart/form-data" class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label mb-1">Upload file</label>
+                            </div>
+                            <div class="col-8">
+                                <input type="file" class="form-control" name="file" required>
+                                <input type="hidden" name="targetPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                            </div>
+                            <div class="col-4">
+                                <button type="submit" class="btn btn-success w-100">⬆️ Upload</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <?php if (!empty($pinnedDirectories)): ?>
             <div class="card mb-3 border-warning">
@@ -205,6 +243,24 @@
                                            onclick="showDownloadProgress(this)">
                                             📦 Archive
                                         </a>
+
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary ms-1 btn-rename-dir"
+                                                data-dir-path="<?= htmlspecialchars($file['path']) ?>"
+                                                data-dir-name="<?= htmlspecialchars($file['name']) ?>"
+                                                data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                title="Rename directory">
+                                            ✏️ Rename
+                                        </button>
+
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger ms-1 btn-delete-dir"
+                                                data-dir-path="<?= htmlspecialchars($file['path']) ?>"
+                                                data-dir-name="<?= htmlspecialchars($file['name']) ?>"
+                                                data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                title="Delete directory (must be empty)">
+                                            🗑 Dir
+                                        </button>
                                     <?php else: ?>
                                         <?php
                                         $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
@@ -298,6 +354,62 @@ function showDownloadProgress(button) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-danger">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Directory Confirmation Modal -->
+<div class="modal fade" id="deleteDirModal" tabindex="-1" aria-labelledby="deleteDirModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteDirModalLabel">Confirm directory deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="/file-index/dir/delete" method="POST">
+                <div class="modal-body">
+                    <p class="mb-2">Delete directory (must be empty):</p>
+                    <p class="mb-0"><strong id="deleteDirName"></strong></p>
+                    <p class="text-muted small mb-0">This action cannot be undone.</p>
+
+                    <input type="hidden" name="path" id="deleteDirPath" value="">
+                    <input type="hidden" name="returnPath" id="deleteDirReturnPath" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Rename Directory Modal -->
+<div class="modal fade" id="renameDirModal" tabindex="-1" aria-labelledby="renameDirModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="renameDirModalLabel">Rename directory</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="/file-index/dir/rename" method="POST">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <div class="small text-muted">Current name:</div>
+                        <div class="fw-semibold" id="renameDirCurrentName"></div>
+                    </div>
+
+                    <label class="form-label" for="renameDirNewName">New name</label>
+                    <input type="text" class="form-control" name="newName" id="renameDirNewName" autocomplete="off" required>
+
+                    <input type="hidden" name="path" id="renameDirPath" value="">
+                    <input type="hidden" name="returnPath" id="renameDirReturnPath" value="">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Rename</button>
                 </div>
             </form>
         </div>
@@ -634,6 +746,61 @@ document.addEventListener('DOMContentLoaded', function() {
         deleteReturnPathInput.value = returnPath;
 
         deleteModal.show();
+    });
+
+    // --- Delete directory modal ---
+    const deleteDirModalElement = document.getElementById('deleteDirModal');
+    const deleteDirNameEl = document.getElementById('deleteDirName');
+    const deleteDirPathInput = document.getElementById('deleteDirPath');
+    const deleteDirReturnPathInput = document.getElementById('deleteDirReturnPath');
+
+    let deleteDirModal = null;
+    if (deleteDirModalElement && typeof bootstrap !== 'undefined') {
+        deleteDirModal = new bootstrap.Modal(deleteDirModalElement);
+    }
+
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-delete-dir');
+        if (!btn || !deleteDirModal) return;
+
+        const dirPath = btn.dataset.dirPath || '';
+        const dirName = btn.dataset.dirName || '';
+        const returnPath = btn.dataset.returnPath || '';
+
+        deleteDirNameEl.textContent = dirName;
+        deleteDirPathInput.value = dirPath;
+        deleteDirReturnPathInput.value = returnPath;
+
+        deleteDirModal.show();
+    });
+
+    // --- Rename directory modal ---
+    const renameDirModalElement = document.getElementById('renameDirModal');
+    const renameDirCurrentNameEl = document.getElementById('renameDirCurrentName');
+    const renameDirNewNameInput = document.getElementById('renameDirNewName');
+    const renameDirPathInput = document.getElementById('renameDirPath');
+    const renameDirReturnPathInput = document.getElementById('renameDirReturnPath');
+
+    let renameDirModal = null;
+    if (renameDirModalElement && typeof bootstrap !== 'undefined') {
+        renameDirModal = new bootstrap.Modal(renameDirModalElement);
+    }
+
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-rename-dir');
+        if (!btn || !renameDirModal) return;
+
+        const dirPath = btn.dataset.dirPath || '';
+        const dirName = btn.dataset.dirName || '';
+        const returnPath = btn.dataset.returnPath || '';
+
+        renameDirCurrentNameEl.textContent = dirName;
+        renameDirNewNameInput.value = dirName;
+        renameDirPathInput.value = dirPath;
+        renameDirReturnPathInput.value = returnPath;
+
+        renameDirModal.show();
+        setTimeout(() => renameDirNewNameInput && renameDirNewNameInput.focus(), 50);
     });
 
     // --- Override media info modal ---

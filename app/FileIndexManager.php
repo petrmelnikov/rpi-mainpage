@@ -85,6 +85,53 @@ class FileIndexManager
         return $this->saveConfig($config);
     }
 
+    public function updatePinnedDirectory(string $oldPath, string $newPath, string $newName): bool
+    {
+        $oldPath = trim($oldPath);
+        $newPath = trim($newPath);
+        $newName = trim($newName);
+
+        if ($oldPath === '' || $newPath === '' || $newName === '') {
+            return false;
+        }
+
+        $config = $this->getConfig();
+        $pinnedDirs = $config['pinnedDirectories'] ?? [];
+
+        $changed = false;
+        $newPathAlreadyPinnedIndex = null;
+        foreach ($pinnedDirs as $idx => $dir) {
+            if (($dir['path'] ?? '') === $newPath) {
+                $newPathAlreadyPinnedIndex = $idx;
+                break;
+            }
+        }
+
+        foreach ($pinnedDirs as $idx => $dir) {
+            if (($dir['path'] ?? '') !== $oldPath) {
+                continue;
+            }
+
+            // If target already pinned, just drop old pin to avoid duplicates.
+            if ($newPathAlreadyPinnedIndex !== null && $newPathAlreadyPinnedIndex !== $idx) {
+                unset($pinnedDirs[$idx]);
+                $changed = true;
+                continue;
+            }
+
+            $pinnedDirs[$idx]['path'] = $newPath;
+            $pinnedDirs[$idx]['name'] = $newName;
+            $changed = true;
+        }
+
+        if (!$changed) {
+            return false;
+        }
+
+        $config['pinnedDirectories'] = array_values($pinnedDirs);
+        return $this->saveConfig($config);
+    }
+
     public function isDirectoryPinned(string $path): bool
     {
         $pinnedDirs = $this->getPinnedDirectories();

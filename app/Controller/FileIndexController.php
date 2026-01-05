@@ -8,6 +8,41 @@ use App\Support\PathGuard;
 
 class FileIndexController
 {
+    private static function buildRedirectUrl(string $returnPath): string
+    {
+        $redirectUrl = '/file-index';
+        $returnPath = trim((string)$returnPath);
+        if ($returnPath !== '') {
+            $redirectUrl .= '?path=' . urlencode(trim($returnPath, '/'));
+        }
+        return $redirectUrl;
+    }
+
+    private static function redirectWithError(string $redirectUrl, string $error): void
+    {
+        $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
+        header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode($error));
+        exit;
+    }
+
+    private static function validateSinglePathSegment(string $name, string $label = 'Name'): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            throw new \InvalidArgumentException($label . ' is required');
+        }
+        if (str_contains($name, '/') || str_contains($name, '\\')) {
+            throw new \InvalidArgumentException($label . ' must not contain slashes');
+        }
+        if (str_contains($name, "\0")) {
+            throw new \InvalidArgumentException('Invalid characters in ' . strtolower($label));
+        }
+        if ($name === '.' || $name === '..') {
+            throw new \InvalidArgumentException('Invalid ' . strtolower($label));
+        }
+        return $name;
+    }
+
     private static function xmlEscape(string $value): string
     {
         return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -27,6 +62,10 @@ class FileIndexController
     {
         $router->addRoute('GET', '/file-index', [$this, 'index'], $appRoot . '/templates/file_index.html.php');
         $router->addRoute('POST', '/file-index/delete', [$this, 'delete']);
+        $router->addRoute('POST', '/file-index/dir/create', [$this, 'createDirectory']);
+        $router->addRoute('POST', '/file-index/dir/delete', [$this, 'deleteDirectory']);
+        $router->addRoute('POST', '/file-index/dir/rename', [$this, 'renameDirectory']);
+        $router->addRoute('POST', '/file-index/upload', [$this, 'uploadFile']);
         $router->addRoute('POST', '/file-index/pin', [$this, 'pin']);
         $router->addRoute('POST', '/file-index/unpin', [$this, 'unpin']);
         $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
@@ -84,6 +123,7 @@ class FileIndexController
                                 'path' => $relativePath,
                                 'fullPath' => $file->getPathname(),
                                 'isDir' => $file->isDir(),
+                                'isWritable' => @is_writable($file->getPathname()),
                                 'size' => $file->isFile() ? $file->getSize() : 0,
                                 'modified' => $file->getMTime(),
                                 'isNavigable' => $file->isDir() && $file->isReadable()
@@ -130,46 +170,249 @@ class FileIndexController
         $path = (string)($_POST['path'] ?? '');
         $returnPath = (string)($_POST['returnPath'] ?? '');
 
-        $redirectUrl = '/file-index';
-        if ($returnPath !== '') {
-            $redirectUrl .= '?path=' . urlencode(trim($returnPath, '/'));
-        }
+        $redirectUrl = self::buildRedirectUrl($returnPath);
 
         $path = trim($path);
         if ($path === '') {
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File path is required'));
-            exit;
+            self::redirectWithError($redirectUrl, 'File path is required');
         }
 
         try {
             $segments = PathGuard::toSegments($path);
         } catch (\InvalidArgumentException $e) {
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode($e->getMessage()));
-            exit;
+            self::redirectWithError($redirectUrl, $e->getMessage());
         }
 
         $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
 
         if (!file_exists($fullPath) && !is_link($fullPath)) {
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('File not found'));
-            exit;
+            self::redirectWithError($redirectUrl, 'File not found');
         }
 
         if (is_dir($fullPath)) {
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Cannot delete directories'));
-            exit;
+            self::redirectWithError($redirectUrl, 'Cannot delete directories');
         }
 
         if (!@unlink($fullPath)) {
             $lastError = error_get_last();
             $reason = $lastError['message'] ?? 'unknown error';
-            $glue = (str_contains($redirectUrl, '?')) ? '&' : '?';
-            header('Location: ' . $redirectUrl . $glue . 'error=' . urlencode('Failed to delete file: ' . $reason));
-            exit;
+            self::redirectWithError($redirectUrl, 'Failed to delete file: ' . $reason);
+        }
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function createDirectory(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+        $redirectUrl = self::buildRedirectUrl($returnPath);
+
+        $parentPath = (string)($_POST['parentPath'] ?? '');
+        $dirName = (string)($_POST['dirName'] ?? '');
+
+        try {
+            $dirName = self::validateSinglePathSegment($dirName, 'Directory name');
+            $parentSegments = PathGuard::toSegmentsAllowEmpty($parentPath);
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        $targetSegments = array_merge($parentSegments, [$dirName]);
+        $targetFullPath = PathGuard::joinCatalog($catalogPath, $targetSegments);
+        $parentFullPath = PathGuard::joinCatalog($catalogPath, $parentSegments);
+
+        if (!is_dir($parentFullPath)) {
+            self::redirectWithError($redirectUrl, 'Parent directory not found');
+        }
+        if (!is_writable($parentFullPath)) {
+            self::redirectWithError($redirectUrl, 'Parent directory is not writable');
+        }
+        if (file_exists($targetFullPath)) {
+            self::redirectWithError($redirectUrl, 'Directory already exists');
+        }
+
+        if (!@mkdir($targetFullPath, 0775, false)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            self::redirectWithError($redirectUrl, 'Failed to create directory: ' . $reason);
+        }
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function deleteDirectory(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_POST['path'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+        $redirectUrl = self::buildRedirectUrl($returnPath);
+
+        $path = trim($path);
+        if ($path === '') {
+            self::redirectWithError($redirectUrl, 'Directory path is required');
+        }
+
+        try {
+            $segments = PathGuard::toSegments($path);
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        if (count($segments) === 0) {
+            self::redirectWithError($redirectUrl, 'Cannot delete catalog root');
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+        if (!file_exists($fullPath)) {
+            self::redirectWithError($redirectUrl, 'Directory not found');
+        }
+        if (!is_dir($fullPath)) {
+            self::redirectWithError($redirectUrl, 'Path is not a directory');
+        }
+
+        if (!@rmdir($fullPath)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            self::redirectWithError($redirectUrl, 'Failed to delete directory (must be empty): ' . $reason);
+        }
+
+        $cleanPath = PathGuard::segmentsToRelativePath($segments);
+        $fileIndexManager->removePinnedDirectory($cleanPath);
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function renameDirectory(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $path = (string)($_POST['path'] ?? '');
+        $newName = (string)($_POST['newName'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+        $redirectUrl = self::buildRedirectUrl($returnPath);
+
+        $path = trim($path);
+        if ($path === '') {
+            self::redirectWithError($redirectUrl, 'Directory path is required');
+        }
+
+        try {
+            $segments = PathGuard::toSegments($path);
+            $newName = self::validateSinglePathSegment($newName, 'New directory name');
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        if (count($segments) === 0) {
+            self::redirectWithError($redirectUrl, 'Cannot rename catalog root');
+        }
+
+        $oldRelativePath = PathGuard::segmentsToRelativePath($segments);
+
+        $parentSegments = $segments;
+        array_pop($parentSegments);
+        $newSegments = array_merge($parentSegments, [$newName]);
+
+        $oldFullPath = PathGuard::joinCatalog($catalogPath, $segments);
+        $newFullPath = PathGuard::joinCatalog($catalogPath, $newSegments);
+
+        if (!file_exists($oldFullPath)) {
+            self::redirectWithError($redirectUrl, 'Directory not found');
+        }
+        if (!is_dir($oldFullPath)) {
+            self::redirectWithError($redirectUrl, 'Path is not a directory');
+        }
+        if (file_exists($newFullPath)) {
+            self::redirectWithError($redirectUrl, 'Target name already exists');
+        }
+
+        if (!@rename($oldFullPath, $newFullPath)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            self::redirectWithError($redirectUrl, 'Failed to rename directory: ' . $reason);
+        }
+
+        $newRelativePath = PathGuard::segmentsToRelativePath($newSegments);
+        $fileIndexManager->updatePinnedDirectory($oldRelativePath, $newRelativePath, $newName);
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function uploadFile(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $targetPath = (string)($_POST['targetPath'] ?? '');
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+        $redirectUrl = self::buildRedirectUrl($returnPath);
+
+        try {
+            $dirSegments = PathGuard::toSegmentsAllowEmpty($targetPath);
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        $targetDir = PathGuard::joinCatalog($catalogPath, $dirSegments);
+        if (!is_dir($targetDir)) {
+            self::redirectWithError($redirectUrl, 'Target directory not found');
+        }
+        if (!is_writable($targetDir)) {
+            self::redirectWithError($redirectUrl, 'Target directory is not writable');
+        }
+
+        if (!isset($_FILES['file'])) {
+            self::redirectWithError($redirectUrl, 'No file uploaded');
+        }
+
+        $upload = $_FILES['file'];
+        $err = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($err !== UPLOAD_ERR_OK) {
+            $msg = match ($err) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Uploaded file is too large',
+                UPLOAD_ERR_PARTIAL => 'File upload was incomplete',
+                UPLOAD_ERR_NO_FILE => 'No file uploaded',
+                UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder on server',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write uploaded file',
+                UPLOAD_ERR_EXTENSION => 'Upload blocked by server extension',
+                default => 'File upload failed',
+            };
+            self::redirectWithError($redirectUrl, $msg);
+        }
+
+        $tmpName = (string)($upload['tmp_name'] ?? '');
+        $origName = (string)($upload['name'] ?? '');
+        $safeName = basename($origName);
+
+        try {
+            $safeName = self::validateSinglePathSegment($safeName, 'File name');
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        $destFullPath = PathGuard::joinCatalog($catalogPath, array_merge($dirSegments, [$safeName]));
+        if (file_exists($destFullPath)) {
+            self::redirectWithError($redirectUrl, 'File already exists');
+        }
+
+        if (!is_uploaded_file($tmpName)) {
+            self::redirectWithError($redirectUrl, 'Invalid upload');
+        }
+
+        if (!@move_uploaded_file($tmpName, $destFullPath)) {
+            $lastError = error_get_last();
+            $reason = $lastError['message'] ?? 'unknown error';
+            self::redirectWithError($redirectUrl, 'Failed to save uploaded file: ' . $reason);
         }
 
         header('Location: ' . $redirectUrl);
