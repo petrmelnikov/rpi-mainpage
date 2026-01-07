@@ -55,7 +55,7 @@
 
         <div class="card mb-3">
             <div class="card-body">
-                <div class="row g-2 align-items-end">
+                <div class="row g-2 align-items-start">
                     <div class="col-12 col-lg-6">
                         <form action="/file-index/dir/create" method="POST" class="row g-2">
                             <div class="col-12">
@@ -216,59 +216,64 @@
                                     <?= date('Y-m-d H:i:s', $file['modified']) ?>
                                 </td>
                                 <td>
+                                    <div class="d-inline-flex align-items-center flex-wrap gap-1 file-actions">
                                     <?php if ($file['isDir']): ?>
                                         <?php $isPinned = isset($pinnedPaths[$file['path']]); ?>
                                         <?php if ($file['isNavigable']): ?>
                                             <button type="button"
-                                                    class="btn btn-sm btn-outline-secondary me-1 btn-override-media-info"
+                                                    class="btn btn-sm btn-outline-secondary btn-icon btn-override-media-info"
                                                     data-media-path="<?= htmlspecialchars($file['path']) ?>"
                                                     data-media-name="<?= htmlspecialchars($file['name']) ?>"
                                                     data-media-is-dir="1"
+                                                    aria-label="Override media info"
                                                     title="Override media info">
-                                                📝 Override Media Info
+                                                📝
                                             </button>
                                         <?php endif; ?>
                                         <?php if ($isPinned): ?>
-                                            <form action="/file-index/unpin" method="POST" class="d-inline me-1">
+                                            <form action="/file-index/unpin" method="POST" class="d-inline">
                                                 <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
                                                 <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
-                                                <button type="submit" class="btn btn-sm btn-warning" title="Unpin directory">
-                                                    📌 Pinned
+                                                <button type="submit" class="btn btn-sm btn-warning btn-icon" aria-label="Unpin directory" title="Unpin directory">
+                                                    📌
                                                 </button>
                                             </form>
                                         <?php else: ?>
-                                            <form action="/file-index/pin" method="POST" class="d-inline me-1">
+                                            <form action="/file-index/pin" method="POST" class="d-inline">
                                                 <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
                                                 <input type="hidden" name="name" value="<?= htmlspecialchars($file['name']) ?>">
                                                 <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Pin directory">
-                                                    📌 Pin
+                                                <button type="submit" class="btn btn-sm btn-outline-warning btn-icon" aria-label="Pin directory" title="Pin directory">
+                                                    📌
                                                 </button>
                                             </form>
                                         <?php endif; ?>
                                         <a href="/file-index/download?path=<?= urlencode($file['path']) ?>" 
-                                           class="btn btn-sm btn-outline-primary download-btn" 
+                                           class="btn btn-sm btn-outline-primary btn-icon download-btn" 
+                                           aria-label="Download directory as .tar.gz archive"
                                            title="Download directory as .tar.gz archive"
                                            onclick="showDownloadProgress(this)">
-                                            📦 Archive
+                                            📦
                                         </a>
 
                                         <button type="button"
-                                                class="btn btn-sm btn-outline-secondary ms-1 btn-rename-dir"
+                                                class="btn btn-sm btn-outline-secondary btn-icon btn-rename-dir"
                                                 data-dir-path="<?= htmlspecialchars($file['path']) ?>"
                                                 data-dir-name="<?= htmlspecialchars($file['name']) ?>"
                                                 data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                aria-label="Rename directory"
                                                 title="Rename directory">
-                                            ✏️ Rename
+                                            ✏️
                                         </button>
 
                                         <button type="button"
-                                                class="btn btn-sm btn-outline-danger ms-1 btn-delete-dir"
+                                                class="btn btn-sm btn-outline-danger btn-icon btn-delete-dir"
                                                 data-dir-path="<?= htmlspecialchars($file['path']) ?>"
                                                 data-dir-name="<?= htmlspecialchars($file['name']) ?>"
                                                 data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                aria-label="Delete directory (must be empty)"
                                                 title="Delete directory (must be empty)">
-                                            🗑 Dir
+                                            🗑
                                         </button>
                                     <?php else: ?>
                                         <?php
@@ -278,38 +283,43 @@
                                         ?>
                                         <?php if (!$isNfoFile && $isPlayableVideo): ?>
                                             <button type="button"
-                                                    class="btn btn-sm btn-outline-secondary me-1 btn-override-media-info"
+                                                    class="btn btn-sm btn-outline-secondary btn-icon btn-override-media-info"
                                                     data-media-path="<?= htmlspecialchars($file['path']) ?>"
                                                     data-media-name="<?= htmlspecialchars($file['name']) ?>"
                                                     data-media-is-dir="0"
+                                                    aria-label="Override media info"
                                                     title="Override media info">
-                                                📝 Override Media Info
+                                                📝
                                             </button>
                                         <?php endif; ?>
                                         <?php if ($isPlayableVideo): ?>
                                             <button type="button" 
-                                                    class="btn btn-sm btn-outline-success btn-play-video me-1"
+                                                    class="btn btn-sm btn-outline-success btn-icon btn-play-video"
                                                     data-video-path="<?= htmlspecialchars($file['path']) ?>"
                                                     data-video-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    aria-label="Play video"
                                                     title="Play video">
-                                                ▶️ Play
+                                                ▶️
                                             </button>
                                         <?php endif; ?>
                                         <a href="/file-index/download/file?path=<?= urlencode($file['path']) ?>" 
-                                           class="btn btn-sm btn-outline-success download-btn" 
+                                           class="btn btn-sm btn-outline-success btn-icon download-btn" 
+                                           aria-label="Download file"
                                            title="Download file"
                                            download>
-                                            💾 Download
+                                            💾
                                         </a>
                                         <button type="button"
-                                                class="btn btn-sm btn-outline-danger ms-1 btn-delete-file"
+                                                class="btn btn-sm btn-outline-danger btn-icon btn-delete-file"
                                                 data-file-path="<?= htmlspecialchars($file['path']) ?>"
                                                 data-file-name="<?= htmlspecialchars($file['name']) ?>"
                                                 data-return-path="<?= htmlspecialchars($currentPath ?? '') ?>"
+                                                aria-label="Delete file"
                                                 title="Delete file">
-                                            🗑 Delete
+                                            🗑
                                         </button>
                                     <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -330,7 +340,7 @@ function showDownloadProgress(button) {
     const originalClass = button.className;
     
     // Show loading state
-    button.innerHTML = '⏳ Preparing Download...';
+    button.innerHTML = '⏳';
     button.className = button.className.replace('btn-outline-', 'btn-');
     button.disabled = true;
     
