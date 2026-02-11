@@ -5,6 +5,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="referrer" content="no-referrer"/>
         <title>opi</title>
+        <link rel="icon" type="image/png" sizes="16x16" href="/web/favicon/favicon-16.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/web/favicon/favicon-32.png">
+        <link rel="icon" type="image/png" sizes="512x512" href="/web/favicon/favicon-512.png">
         <link rel="stylesheet" href="/vendor/twbs/bootstrap/dist/css/bootstrap.css">
         <!-- Plyr Video Player -->
         <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
