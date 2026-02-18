@@ -498,6 +498,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentVideoPath = null;
     let timeUpdateTimeout = null;
     let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
+    let holdSpeedRestoreValue = 1;
+    let holdSpeedTimeout = null;
+    let holdToSpeedActive = false;
 
     const videoModalElement = document.getElementById('videoPlayerModal');
     const videoElement = document.getElementById('videoPlayer');
@@ -514,6 +517,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const SEEK_TIME = 10; // seconds
     const SAVE_INTERVAL = 5000; // 5 seconds
+    const HOLD_TO_SPEED_RATE = 2;
+    const HOLD_TO_SPEED_DELAY = 200;
 
     // Video MIME types mapping
     const mimeTypes = {
@@ -599,6 +604,56 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function startHoldToSpeed() {
+        if (!player || holdToSpeedActive) return;
+        holdSpeedRestoreValue = player.speed || 1;
+        player.speed = HOLD_TO_SPEED_RATE;
+        holdToSpeedActive = true;
+    }
+
+    function stopHoldToSpeed() {
+        if (!player || !holdToSpeedActive) return;
+        player.speed = holdSpeedRestoreValue;
+        holdToSpeedActive = false;
+    }
+
+    function clearHoldToSpeedTimeout() {
+        if (holdSpeedTimeout) {
+            clearTimeout(holdSpeedTimeout);
+            holdSpeedTimeout = null;
+        }
+    }
+
+    function setupHoldToSpeed() {
+        if (!player || !player.elements || !player.elements.container) return;
+
+        const plyrContainer = player.elements.container;
+        const videoWrapper = plyrContainer.querySelector('.plyr__video-wrapper');
+        if (!videoWrapper) return;
+
+        videoWrapper.addEventListener('touchstart', function(e) {
+            if (e.target.closest('.plyr__controls') || e.target.closest('.seek-zone')) return;
+            clearHoldToSpeedTimeout();
+            holdSpeedTimeout = setTimeout(() => {
+                startHoldToSpeed();
+                holdSpeedTimeout = null;
+            }, HOLD_TO_SPEED_DELAY);
+        }, { passive: true });
+
+        const finishHold = function() {
+            clearHoldToSpeedTimeout();
+            stopHoldToSpeed();
+        };
+
+        videoWrapper.addEventListener('touchend', finishHold, { passive: true });
+        videoWrapper.addEventListener('touchcancel', finishHold, { passive: true });
+        videoWrapper.addEventListener('touchmove', function(e) {
+            if (e.touches && e.touches.length > 1) {
+                finishHold();
+            }
+        }, { passive: true });
+    }
+
     // Setup seek zones logic
     function setupSeekZones() {
         const plyrContainer = player && player.elements && player.elements.container 
@@ -667,6 +722,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         player.on('ready', function() {
             setupSeekZones();
+            setupHoldToSpeed();
         });
 
         player.on('loadedmetadata', function() {
@@ -693,6 +749,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Stop video and save final time when modal closes
     videoModalElement.addEventListener('hidden.bs.modal', function() {
         if (player) {
+            clearHoldToSpeedTimeout();
+            stopHoldToSpeed();
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
