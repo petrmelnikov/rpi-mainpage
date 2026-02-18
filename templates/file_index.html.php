@@ -78,7 +78,7 @@
                                 <label class="form-label mb-1">Upload file</label>
                             </div>
                             <div class="col-8">
-                                <input type="file" class="form-control" name="file" id="chunkUploadFile" required>
+                                <input type="file" class="form-control" name="file" id="chunkUploadFile" multiple required>
                                 <input type="hidden" name="targetPath" id="chunkUploadTargetPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
                                 <input type="hidden" name="returnPath" id="chunkUploadReturnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
                             </div>
@@ -1046,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return data;
     }
 
-    async function runChunkedUpload(file, targetPath, returnPath) {
+    async function runChunkedUpload(file, targetPath, returnPath, shouldRedirect = true) {
         const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB
 
         setUploadError('');
@@ -1091,9 +1091,11 @@ document.addEventListener('DOMContentLoaded', function() {
         setUploadStatus('Finalizing…');
         await postForm('/file-index/upload/finish', { uploadId });
 
-        // Refresh directory view
-        const url = '/file-index' + (returnPath ? ('?path=' + encodeURIComponent(returnPath)) : '');
-        window.location.href = url;
+        if (shouldRedirect) {
+            // Refresh directory view
+            const url = '/file-index' + (returnPath ? ('?path=' + encodeURIComponent(returnPath)) : '');
+            window.location.href = url;
+        }
     }
 
     // Intercept upload form submit for resumable chunked upload.
@@ -1107,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 e.preventDefault();
 
-                const file = uploadFileInput.files[0];
+                const files = Array.from(uploadFileInput.files || []);
                 const targetPath = uploadTargetPathInput.value || '';
                 const returnPath = uploadReturnPathInput.value || '';
 
@@ -1115,7 +1117,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 uploadFileInput.disabled = true;
 
                 try {
-                    await runChunkedUpload(file, targetPath, returnPath);
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        setUploadStatus(`File ${i + 1}/${files.length}: ${file.name}`);
+                        await runChunkedUpload(file, targetPath, returnPath, false);
+                    }
+
+                    const url = '/file-index' + (returnPath ? ('?path=' + encodeURIComponent(returnPath)) : '');
+                    window.location.href = url;
                 } catch (err) {
                     setUploadError(err && err.message ? err.message : 'Upload failed');
                     setUploadStatus('');
