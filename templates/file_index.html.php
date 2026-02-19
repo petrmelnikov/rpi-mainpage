@@ -578,6 +578,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function restoreSavedVideoTimeAsync(pathForRequest) {
+        if (!pathForRequest) {
+            return;
+        }
+
+        void getSavedVideoTime(pathForRequest).then((savedTime) => {
+            if (!player || currentVideoPath !== pathForRequest) {
+                return;
+            }
+            if (!Number.isFinite(savedTime) || savedTime <= 0) {
+                return;
+            }
+
+            const currentTime = Number(player.currentTime) || 0;
+            if (currentTime > 0) {
+                return;
+            }
+
+            const duration = Number(player.duration) || 0;
+            const boundedTime = duration > 0
+                ? Math.max(0, Math.min(duration, savedTime))
+                : Math.max(0, savedTime);
+            player.currentTime = boundedTime;
+        });
+    }
 
     async function loadVideoProgressForFileList() {
         const progressRows = Array.from(document.querySelectorAll('[data-video-progress-path]'));
@@ -796,27 +821,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         player.on('loadedmetadata', function() {
             isVideoReadyForSave = true;
-
-            const pathForRequest = currentVideoPath;
-            void getSavedVideoTime(pathForRequest).then((savedTime) => {
-                if (!player || !pathForRequest || currentVideoPath !== pathForRequest) {
-                    return;
-                }
-                if (!Number.isFinite(savedTime) || savedTime <= 0) {
-                    return;
-                }
-
-                const currentTime = Number(player.currentTime) || 0;
-                if (currentTime > 0) {
-                    return;
-                }
-
-                const duration = Number(player.duration) || 0;
-                const boundedTime = duration > 0
-                    ? Math.max(0, Math.min(duration, savedTime))
-                    : Math.max(0, savedTime);
-                player.currentTime = boundedTime;
-            });
+            restoreSavedVideoTimeAsync(currentVideoPath);
         });
 
         player.on('timeupdate', function() {
