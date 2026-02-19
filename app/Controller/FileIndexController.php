@@ -226,6 +226,7 @@ class FileIndexController
         $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
         $router->addRoute('GET', '/file-index/stream', [$this, 'streamVideo']);
         $router->addRoute('GET', '/file-index/video-progress', [$this, 'getVideoProgress']);
+        $router->addRoute('GET', '/file-index/video-progress/list', [$this, 'getVideoProgressList']);
         $router->addRoute('POST', '/file-index/video-progress', [$this, 'saveVideoProgress']);
         $router->addRoute('GET', '/file-index/download/file', [$this, 'downloadFile']);
         $router->addRoute('GET', '/file-index/nfo', [$this, 'getNfo']);
@@ -1200,8 +1201,50 @@ class FileIndexController
         }
 
         $progressMap = self::loadVideoProgressMap();
-        $time = (float)($progressMap[$normalizedPath] ?? 0);
+        $rawProgress = $progressMap[$normalizedPath] ?? 0;
+        $time = is_array($rawProgress) ? (float)($rawProgress['time'] ?? 0) : (float)$rawProgress;
         self::jsonResponse(['ok' => true, 'time' => max(0, $time)]);
+    }
+
+    public function getVideoProgressList(): string
+    {
+        $paths = $_GET['paths'] ?? [];
+        if (!is_array($paths)) {
+            self::jsonResponse(['ok' => false, 'error' => 'paths must be an array'], 400);
+        }
+
+        $progressMap = self::loadVideoProgressMap();
+        $result = [];
+
+        foreach ($paths as $path) {
+            $path = trim((string)$path);
+            if ($path === '') {
+                continue;
+            }
+
+            try {
+                $normalizedPath = PathGuard::segmentsToRelativePath(PathGuard::toSegments($path));
+            } catch (\InvalidArgumentException) {
+                continue;
+            }
+
+            $rawProgress = $progressMap[$normalizedPath] ?? 0;
+            $time = is_array($rawProgress) ? (float)($rawProgress['time'] ?? 0) : (float)$rawProgress;
+            $duration = is_array($rawProgress) ? (float)($rawProgress['duration'] ?? 0) : 0.0;
+            $percent = is_array($rawProgress) ? (int)($rawProgress['percent'] ?? 0) : 0;
+
+            if ($percent <= 0 && $duration > 0) {
+                $percent = (int)round((max(0, $time) / $duration) * 100);
+            }
+
+            $result[$normalizedPath] = [
+                'time' => max(0, $time),
+                'duration' => max(0, $duration),
+                'percent' => min(100, max(0, $percent)),
+            ];
+        }
+
+        self::jsonResponse(['ok' => true, 'progress' => $result]);
     }
 
     public function saveVideoProgress(): string
@@ -1217,6 +1260,7 @@ class FileIndexController
 
         $path = trim((string)($payload['path'] ?? ''));
         $time = (float)($payload['time'] ?? 0);
+        $duration = (float)($payload['duration'] ?? 0);
 
         if ($path === '') {
             self::jsonResponse(['ok' => false, 'error' => 'Path is required'], 400);
@@ -1229,16 +1273,31 @@ class FileIndexController
         }
 
         $safeTime = max(0, $time);
+        $safeDuration = max(0, $duration);
+        $percent = 0;
+        if ($safeDuration > 0) {
+            $percent = (int)round(($safeTime / $safeDuration) * 100);
+        }
+        $safePercent = min(100, max(0, $percent));
 
         try {
             $progressMap = self::loadVideoProgressMap();
-            $progressMap[$normalizedPath] = $safeTime;
+            $progressMap[$normalizedPath] = [
+                'time' => $safeTime,
+                'duration' => $safeDuration,
+                'percent' => $safePercent,
+            ];
             self::saveVideoProgressMap($progressMap);
         } catch (\RuntimeException $e) {
             self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
-        self::jsonResponse(['ok' => true, 'time' => $safeTime]);
+        self::jsonResponse([
+            'ok' => true,
+            'time' => $safeTime,
+            'duration' => $safeDuration,
+            'percent' => $safePercent,
+        ]);
     }
 
     public function downloadFile(): string

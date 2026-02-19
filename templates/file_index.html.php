@@ -195,6 +195,15 @@
                                             <?= htmlspecialchars($file['name']) ?>
                                         <?php endif; ?>
                                     </span>
+                                    <?php if (!$file['isDir']): ?>
+                                        <?php
+                                        $nameExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                                        $isVideoFileForProgress = in_array($nameExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        ?>
+                                        <?php if ($isVideoFileForProgress): ?>
+                                            <div class="small text-muted file-video-progress d-none" data-video-progress-path="<?= htmlspecialchars($file['path']) ?>">▶ Progress: <span class="file-video-progress-percent">0%</span></div>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if (!$file['isDir'] && $file['size'] > 0): ?>
@@ -527,7 +536,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // --- Backend video progress helpers ---
-    async function saveVideoTime(path, time) {
+    async function saveVideoTime(path, time, duration) {
         if (!path) return;
         // Prevent overwriting valid saved time with 0 if video hasn't started/restored properly yet
         if (!isVideoReadyForSave && time < 1) {
@@ -543,6 +552,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({
                     path: path,
                     time: Number(time) || 0,
+                    duration: Number(duration) || 0,
                 }),
             });
         } catch (e) {
@@ -565,6 +575,50 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) {
             console.error("Failed to get video time from backend", e);
             return 0;
+        }
+    }
+
+
+    async function loadVideoProgressForFileList() {
+        const progressRows = Array.from(document.querySelectorAll('[data-video-progress-path]'));
+        if (!progressRows.length) return;
+
+        const paths = progressRows
+            .map((row) => row.dataset.videoProgressPath || '')
+            .filter((value) => value);
+
+        if (!paths.length) return;
+
+        try {
+            const params = new URLSearchParams();
+            for (const path of paths) {
+                params.append('paths[]', path);
+            }
+
+            const response = await fetch('/file-index/video-progress/list?' + params.toString(), {
+                method: 'GET',
+            });
+            if (!response.ok) return;
+
+            const payload = await response.json();
+            if (!payload || !payload.ok || !payload.progress) return;
+
+            for (const row of progressRows) {
+                const path = row.dataset.videoProgressPath || '';
+                const progress = payload.progress[path];
+                if (!progress) continue;
+
+                const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+                if (percent <= 0) continue;
+
+                const percentEl = row.querySelector('.file-video-progress-percent');
+                if (percentEl) {
+                    percentEl.textContent = percent.toFixed(0) + '%';
+                }
+                row.classList.remove('d-none');
+            }
+        } catch (e) {
+            console.error('Failed to load file list video progress', e);
         }
     }
 
@@ -751,7 +805,7 @@ document.addEventListener('DOMContentLoaded', function() {
         player.on('timeupdate', function() {
             if (isVideoReadyForSave && !timeUpdateTimeout) {
                 timeUpdateTimeout = setTimeout(() => {
-                    void saveVideoTime(currentVideoPath, player.currentTime);
+                    void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
                     timeUpdateTimeout = null;
                 }, SAVE_INTERVAL);
             }
@@ -760,6 +814,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize on load
     initPlyr();
+    void loadVideoProgressForFileList();
         
     // Stop video and save final time when modal closes
     videoModalElement.addEventListener('hidden.bs.modal', function() {
@@ -769,7 +824,7 @@ document.addEventListener('DOMContentLoaded', function() {
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
-                void saveVideoTime(currentVideoPath, player.currentTime);
+                void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
             }
             player.pause();
             isVideoReadyForSave = false;
