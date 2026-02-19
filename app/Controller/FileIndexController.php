@@ -136,6 +136,49 @@ class FileIndexController
         return $meta;
     }
 
+    private static function getVideoProgressStoragePath(): string
+    {
+        $baseDir = self::getUploadBaseDir();
+        if (!is_dir($baseDir)) {
+            @mkdir($baseDir, 0775, true);
+        }
+        return rtrim($baseDir, '/') . '/video_progress.json';
+    }
+
+    private static function loadVideoProgressMap(): array
+    {
+        $storagePath = self::getVideoProgressStoragePath();
+        if (!is_file($storagePath)) {
+            return [];
+        }
+
+        $json = @file_get_contents($storagePath);
+        if ($json === false || trim($json) === '') {
+            return [];
+        }
+
+        $map = json_decode($json, true);
+        if (!is_array($map)) {
+            return [];
+        }
+
+        return $map;
+    }
+
+    private static function saveVideoProgressMap(array $map): void
+    {
+        $storagePath = self::getVideoProgressStoragePath();
+        $encoded = json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            throw new \RuntimeException('Failed to encode video progress map');
+        }
+
+        $ok = @file_put_contents($storagePath, $encoded, LOCK_EX);
+        if ($ok === false) {
+            throw new \RuntimeException('Failed to write video progress map');
+        }
+    }
+
     private static function listReceivedChunks(string $uploadDir, int $totalChunks): array
     {
         $received = [];
@@ -182,6 +225,8 @@ class FileIndexController
         $router->addRoute('POST', '/file-index/unpin', [$this, 'unpin']);
         $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
         $router->addRoute('GET', '/file-index/stream', [$this, 'streamVideo']);
+        $router->addRoute('GET', '/file-index/video-progress', [$this, 'getVideoProgress']);
+        $router->addRoute('POST', '/file-index/video-progress', [$this, 'saveVideoProgress']);
         $router->addRoute('GET', '/file-index/download/file', [$this, 'downloadFile']);
         $router->addRoute('GET', '/file-index/nfo', [$this, 'getNfo']);
         $router->addRoute('POST', '/file-index/nfo', [$this, 'saveNfo']);
@@ -1139,6 +1184,61 @@ class FileIndexController
         }
 
         exit;
+    }
+
+    public function getVideoProgress(): string
+    {
+        $path = (string)($_GET['path'] ?? '');
+        if (trim($path) === '') {
+            self::jsonResponse(['ok' => false, 'error' => 'Path is required'], 400);
+        }
+
+        try {
+            $normalizedPath = PathGuard::segmentsToRelativePath(PathGuard::toSegments($path));
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $progressMap = self::loadVideoProgressMap();
+        $time = (float)($progressMap[$normalizedPath] ?? 0);
+        self::jsonResponse(['ok' => true, 'time' => max(0, $time)]);
+    }
+
+    public function saveVideoProgress(): string
+    {
+        $payload = $_POST;
+        if (empty($payload)) {
+            $raw = file_get_contents('php://input');
+            $decoded = json_decode((string)$raw, true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        $path = trim((string)($payload['path'] ?? ''));
+        $time = (float)($payload['time'] ?? 0);
+
+        if ($path === '') {
+            self::jsonResponse(['ok' => false, 'error' => 'Path is required'], 400);
+        }
+
+        try {
+            $normalizedPath = PathGuard::segmentsToRelativePath(PathGuard::toSegments($path));
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $safeTime = max(0, $time);
+
+        try {
+            $progressMap = self::loadVideoProgressMap();
+            $progressMap[$normalizedPath] = $safeTime;
+            self::saveVideoProgressMap($progressMap);
+        } catch (\RuntimeException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+
+        self::jsonResponse(['ok' => true, 'time' => $safeTime]);
     }
 
     public function downloadFile(): string

@@ -526,29 +526,44 @@ document.addEventListener('DOMContentLoaded', function() {
         'mov': 'video/quicktime', 'mkv': 'video/x-matroska', 'avi': 'video/x-msvideo'
     };
 
-    // --- LocalStorage helpers ---
-    function saveVideoTime(path, time) {
+    // --- Backend video progress helpers ---
+    async function saveVideoTime(path, time) {
         if (!path) return;
         // Prevent overwriting valid saved time with 0 if video hasn't started/restored properly yet
         if (!isVideoReadyForSave && time < 1) {
             return;
         }
+
         try {
-            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
-            videoProgress[path] = time;
-            localStorage.setItem('videoProgress', JSON.stringify(videoProgress));
+            await fetch('/file-index/video-progress', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    path: path,
+                    time: Number(time) || 0,
+                }),
+            });
         } catch (e) {
-            console.error("Failed to save video time to localStorage", e);
+            console.error("Failed to save video time to backend", e);
         }
     }
 
-    function getSavedVideoTime(path) {
+    async function getSavedVideoTime(path) {
         if (!path) return 0;
+
         try {
-            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
-            return parseFloat(videoProgress[path] || 0);
+            const url = '/file-index/video-progress?path=' + encodeURIComponent(path);
+            const response = await fetch(url, { method: 'GET' });
+            if (!response.ok) return 0;
+
+            const payload = await response.json();
+            if (!payload || !payload.ok) return 0;
+
+            return parseFloat(payload.time || 0);
         } catch (e) {
-            console.error("Failed to get video time from localStorage", e);
+            console.error("Failed to get video time from backend", e);
             return 0;
         }
     }
@@ -725,8 +740,8 @@ document.addEventListener('DOMContentLoaded', function() {
             setupHoldToSpeed();
         });
 
-        player.on('loadedmetadata', function() {
-            const savedTime = getSavedVideoTime(currentVideoPath);
+        player.on('loadedmetadata', async function() {
+            const savedTime = await getSavedVideoTime(currentVideoPath);
             if (savedTime > 0) {
                 player.currentTime = savedTime;
             }
@@ -736,7 +751,7 @@ document.addEventListener('DOMContentLoaded', function() {
         player.on('timeupdate', function() {
             if (isVideoReadyForSave && !timeUpdateTimeout) {
                 timeUpdateTimeout = setTimeout(() => {
-                    saveVideoTime(currentVideoPath, player.currentTime);
+                    void saveVideoTime(currentVideoPath, player.currentTime);
                     timeUpdateTimeout = null;
                 }, SAVE_INTERVAL);
             }
@@ -754,7 +769,7 @@ document.addEventListener('DOMContentLoaded', function() {
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
-                saveVideoTime(currentVideoPath, player.currentTime);
+                void saveVideoTime(currentVideoPath, player.currentTime);
             }
             player.pause();
             isVideoReadyForSave = false;
