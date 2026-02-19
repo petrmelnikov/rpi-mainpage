@@ -195,6 +195,15 @@
                                             <?= htmlspecialchars($file['name']) ?>
                                         <?php endif; ?>
                                     </span>
+                                    <?php if (!$file['isDir']): ?>
+                                        <?php
+                                        $nameExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                                        $isVideoFileForProgress = in_array($nameExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        ?>
+                                        <?php if ($isVideoFileForProgress): ?>
+                                            <div class="small text-muted file-video-progress d-none" data-video-progress-path="<?= htmlspecialchars($file['path']) ?>">▶ Progress: <span class="file-video-progress-percent">0%</span></div>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if (!$file['isDir'] && $file['size'] > 0): ?>
@@ -526,30 +535,90 @@ document.addEventListener('DOMContentLoaded', function() {
         'mov': 'video/quicktime', 'mkv': 'video/x-matroska', 'avi': 'video/x-msvideo'
     };
 
-    // --- LocalStorage helpers ---
-    function saveVideoTime(path, time) {
+    // --- Backend video progress helpers ---
+    async function saveVideoTime(path, time, duration) {
         if (!path) return;
         // Prevent overwriting valid saved time with 0 if video hasn't started/restored properly yet
         if (!isVideoReadyForSave && time < 1) {
             return;
         }
+
         try {
-            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
-            videoProgress[path] = time;
-            localStorage.setItem('videoProgress', JSON.stringify(videoProgress));
+            await fetch('/file-index/video-progress', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    path: path,
+                    time: Number(time) || 0,
+                    duration: Number(duration) || 0,
+                }),
+            });
         } catch (e) {
-            console.error("Failed to save video time to localStorage", e);
+            console.error("Failed to save video time to backend", e);
         }
     }
 
-    function getSavedVideoTime(path) {
+    async function getSavedVideoTime(path) {
         if (!path) return 0;
+
         try {
-            const videoProgress = JSON.parse(localStorage.getItem('videoProgress') || '{}');
-            return parseFloat(videoProgress[path] || 0);
+            const url = '/file-index/video-progress?path=' + encodeURIComponent(path);
+            const response = await fetch(url, { method: 'GET' });
+            if (!response.ok) return 0;
+
+            const payload = await response.json();
+            if (!payload || !payload.ok) return 0;
+
+            return parseFloat(payload.time || 0);
         } catch (e) {
-            console.error("Failed to get video time from localStorage", e);
+            console.error("Failed to get video time from backend", e);
             return 0;
+        }
+    }
+
+
+    async function loadVideoProgressForFileList() {
+        const progressRows = Array.from(document.querySelectorAll('[data-video-progress-path]'));
+        if (!progressRows.length) return;
+
+        const paths = progressRows
+            .map((row) => row.dataset.videoProgressPath || '')
+            .filter((value) => value);
+
+        if (!paths.length) return;
+
+        try {
+            const params = new URLSearchParams();
+            for (const path of paths) {
+                params.append('paths[]', path);
+            }
+
+            const response = await fetch('/file-index/video-progress/list?' + params.toString(), {
+                method: 'GET',
+            });
+            if (!response.ok) return;
+
+            const payload = await response.json();
+            if (!payload || !payload.ok || !payload.progress) return;
+
+            for (const row of progressRows) {
+                const path = row.dataset.videoProgressPath || '';
+                const progress = payload.progress[path];
+                if (!progress) continue;
+
+                const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+                if (percent <= 0) continue;
+
+                const percentEl = row.querySelector('.file-video-progress-percent');
+                if (percentEl) {
+                    percentEl.textContent = percent.toFixed(0) + '%';
+                }
+                row.classList.remove('d-none');
+            }
+        } catch (e) {
+            console.error('Failed to load file list video progress', e);
         }
     }
 
@@ -726,17 +795,34 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         player.on('loadedmetadata', function() {
-            const savedTime = getSavedVideoTime(currentVideoPath);
-            if (savedTime > 0) {
-                player.currentTime = savedTime;
-            }
             isVideoReadyForSave = true;
+
+            const pathForRequest = currentVideoPath;
+            void getSavedVideoTime(pathForRequest).then((savedTime) => {
+                if (!player || !pathForRequest || currentVideoPath !== pathForRequest) {
+                    return;
+                }
+                if (!Number.isFinite(savedTime) || savedTime <= 0) {
+                    return;
+                }
+
+                const currentTime = Number(player.currentTime) || 0;
+                if (currentTime > 0) {
+                    return;
+                }
+
+                const duration = Number(player.duration) || 0;
+                const boundedTime = duration > 0
+                    ? Math.max(0, Math.min(duration, savedTime))
+                    : Math.max(0, savedTime);
+                player.currentTime = boundedTime;
+            });
         });
 
         player.on('timeupdate', function() {
             if (isVideoReadyForSave && !timeUpdateTimeout) {
                 timeUpdateTimeout = setTimeout(() => {
-                    saveVideoTime(currentVideoPath, player.currentTime);
+                    void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
                     timeUpdateTimeout = null;
                 }, SAVE_INTERVAL);
             }
@@ -745,6 +831,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize on load
     initPlyr();
+    void loadVideoProgressForFileList();
         
     // Stop video and save final time when modal closes
     videoModalElement.addEventListener('hidden.bs.modal', function() {
@@ -754,7 +841,7 @@ document.addEventListener('DOMContentLoaded', function() {
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
-                saveVideoTime(currentVideoPath, player.currentTime);
+                void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
             }
             player.pause();
             isVideoReadyForSave = false;
