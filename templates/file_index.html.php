@@ -96,6 +96,22 @@
                             </div>
                         </form>
                     </div>
+
+                    <div class="col-12">
+                        <form action="/file-index/download-url" method="POST" class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label mb-1">Download from URL (aria2c, fallback wget)</label>
+                            </div>
+                            <div class="col-12 col-lg-10">
+                                <input type="url" class="form-control" name="url" placeholder="https://example.com/file.zip" autocomplete="off" required>
+                                <input type="hidden" name="targetPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                                <input type="hidden" name="returnPath" value="<?= htmlspecialchars($currentPath ?? '') ?>">
+                            </div>
+                            <div class="col-12 col-lg-2">
+                                <button type="submit" class="btn btn-outline-success w-100">⬇️ Download</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
