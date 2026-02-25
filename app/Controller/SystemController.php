@@ -42,10 +42,10 @@ class SystemController
         $targetAppRoot = $isShellOverSsh ? $remoteAppRoot : $localAppRoot;
         $appRootArg = escapeshellarg($targetAppRoot);
 
-        $wrapCommand = static function (string $command): string {
+        $wrapCommand = static function (string $command) use ($isShellOverSsh): string {
             // In Docker SSH mode we already connect as SSH_REMOTE_USER (default: ubuntu),
             // so extra sudo wrapping may fail and break pull/composer commands.
-            if (getenv('SHELL_OVER_SSH') === '1') {
+            if ($isShellOverSsh) {
                 return $command;
             }
 
@@ -53,7 +53,7 @@ class SystemController
             return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
         };
 
-        $pathPrefix = 'PATH=/usr/local/bin:/usr/bin:/bin:$PATH ';
+        $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
         return ['shellCommandRawContent' => array_merge(
             ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
