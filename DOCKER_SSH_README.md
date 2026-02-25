@@ -1,0 +1,42 @@
+# Docker + single SSH connection
+
+This setup runs the app in Docker and executes shell commands over one shared SSH connection.
+
+## 1) Prepare key and env
+
+```bash
+./scripts/setup-docker-ssh-key.sh
+```
+
+What the script does:
+- generates a dedicated Ed25519 key in `.docker-ssh/` (if missing)
+- writes `.env.ssh` with `SSH_REMOTE_HOST`, `SSH_REMOTE_PORT`, `SSH_REMOTE_USER`, `SSH_PRIVATE_KEY_B64`
+- appends the public key to remote `~/.ssh/authorized_keys` only if it is not already present (does not overwrite existing keys)
+
+## 2) Start
+
+```bash
+docker compose up --build
+```
+
+App is available at `http://localhost:8080`.
+
+## How single SSH session works
+
+Container entrypoint (`init-ssh-and-run.sh`) creates SSH config with:
+- `ControlMaster auto`
+- `ControlPersist 10m`
+- `ControlPath /tmp/ssh/cm-%r@%h:%p`
+
+Then it runs:
+
+```bash
+ssh -F /tmp/ssh/config -MNf remote-target
+```
+
+This opens one master connection. Subsequent command executions use `run-over-ssh.sh`, reusing the same control socket.
+
+## Notes
+
+- Keep `.env.ssh` and `.docker-ssh/` private.
+- If remote host changes, rerun `./scripts/setup-docker-ssh-key.sh`.

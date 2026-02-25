@@ -1,3 +1,5 @@
 /vendor
 /.idea/*
 .DS_Store
+.env.ssh
+.docker-ssh/
