@@ -132,51 +132,64 @@ class FileIndexController
             ],
             [
                 'tool' => 'wget',
-                'cmd' => 'wget -P ' . $escapedDir . ' -- ' . $escapedUrl . ' 2>&1',
+                'cmd' => 'wget -P ' . $escapedDir . ' ' . $escapedUrl . ' 2>&1',
             ],
         ];
 
-        $errors = [];
-        $notFoundCount = 0;
-        foreach ($commands as $item) {
-            $output = [];
-            $exitCode = 1;
-
-            if ($isShellOverSsh) {
-                $marker = '__CMD_EXIT_CODE__';
-                $wrapped = $item['cmd'] . '; printf "\\n' . $marker . '%s\\n" "$?"';
-                try {
-                    $raw = ShellCommandExecutor::execute($wrapped);
-                } catch (\RuntimeException $e) {
-                    $raw = $e->getMessage();
-                }
-
-                $output = explode("\n", (string)$raw);
-                for ($i = count($output) - 1; $i >= 0; $i--) {
-                    $line = trim((string)$output[$i]);
-                    if (str_starts_with($line, $marker)) {
-                        $exitCode = (int)substr($line, strlen($marker));
-                        unset($output[$i]);
-                        break;
-                    }
-                }
-                $output = array_values($output);
-            } else {
-                @exec($item['cmd'], $output, $exitCode);
-            }
-
-            if ($exitCode === 0) {
-                return ['ok' => true, 'tool' => $item['tool']];
-            }
-            $tail = trim((string)implode("\n", array_slice($output, -5)));
-            if ($exitCode === 127 || stripos($tail, 'not found') !== false) {
-                $notFoundCount++;
-            }
-            $errors[] = $item['tool'] . ($tail !== '' ? (': ' . $tail) : ': failed with exit code ' . $exitCode);
+        $modes = ['local'];
+        if ($isShellOverSsh) {
+            $modes[] = 'ssh';
         }
 
-        if ($notFoundCount === count($commands)) {
-            return ['ok' => false, 'error' => 'Neither aria2c nor wget is available on the server'];
+        $errors = [];
+        $notFoundCount = 0;
+        $attemptsCount = 0;
+
+        foreach ($modes as $mode) {
+            foreach ($commands as $item) {
+                $output = [];
+                $exitCode = 1;
+                $attemptsCount++;
+
+                if ($mode === 'ssh') {
+                    $marker = '__CMD_EXIT_CODE__';
+                    $wrapped = $item['cmd'] . '; printf "\\n' . $marker . '%s\\n" "$?"';
+                    try {
+                        $raw = ShellCommandExecutor::execute($wrapped);
+                    } catch (\RuntimeException $e) {
+                        $raw = $e->getMessage();
+                    }
+
+                    $output = explode("\n", (string)$raw);
+                    for ($i = count($output) - 1; $i >= 0; $i--) {
+                        $line = trim((string)$output[$i]);
+                        if (str_starts_with($line, $marker)) {
+                            $exitCode = (int)substr($line, strlen($marker));
+                            unset($output[$i]);
+                            break;
+                        }
+                    }
+                    $output = array_values($output);
+                } else {
+                    @exec($item['cmd'], $output, $exitCode);
+                }
+
+                if ($exitCode === 0) {
+                    return ['ok' => true, 'tool' => $item['tool'], 'mode' => $mode];
+                }
+
+                $tail = trim((string)implode("\n", array_slice($output, -5)));
+                if ($exitCode === 127 || stripos($tail, 'not found') !== false) {
+                    $notFoundCount++;
+                }
+
+                $errors[] = ($mode === 'ssh' ? 'remote ' : 'local ') . $item['tool']
+                    . ($tail !== '' ? (': ' . $tail) : ': failed with exit code ' . $exitCode);
+            }
+        }
+
+        if ($attemptsCount > 0 && $notFoundCount === $attemptsCount) {
+            return ['ok' => false, 'error' => 'Neither aria2c nor wget is available in container/remote context'];
         }
 
         return ['ok' => false, 'error' => implode(' | ', $errors)];
