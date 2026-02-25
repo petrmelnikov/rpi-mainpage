@@ -37,21 +37,33 @@ class SystemController
 
     public function index(): array
     {
+        $stripAnsi = static function (string $line): string {
+            return (string)preg_replace('/\x1b\[[0-9;]*m/', '', $line);
+        };
+
+        $isRawUsbDfLine = static function (string $line) use ($stripAnsi): bool {
+            $plain = trim($stripAnsi($line));
+            // Raw df format example:
+            // /dev/nvme0n1 3907029168 3701562200 202327592 95% /media/usb_ssd
+            return preg_match('/^\S+\s+\d+\s+\d+\s+\d+\s+\d+%\s+\/media\/usb/i', $plain) === 1;
+        };
+
         $sysInfoLines = self::sanitizeShellLines(
             ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo 2>&1')
         );
 
         // landscape-sysinfo may print raw 1K-block disk values for USB mounts.
         // Hide those lines and show explicit human-readable df output below.
-        $sysInfoLines = array_values(array_filter($sysInfoLines, static function (string $line): bool {
-            return preg_match('/^\S+\s+\d{7,}\s+\d{7,}\s+\d{7,}\s+\d+%\s+\/media\/usb/i', $line) !== 1;
-        }));
+        $sysInfoLines = array_values(array_filter($sysInfoLines, static fn(string $line): bool => !$isRawUsbDfLine($line)));
 
         $usbDiskLines = self::sanitizeShellLines(
             ShellCommandExecutor::executeWithSplitByLines("df -hP | grep '/media/usb' 2>&1")
         );
 
-        return ['shellCommandRawContent' => array_merge($sysInfoLines, $usbDiskLines)];
+        $allLines = array_merge($sysInfoLines, $usbDiskLines);
+        $allLines = array_values(array_filter($allLines, static fn(string $line): bool => !$isRawUsbDfLine($line)));
+
+        return ['shellCommandRawContent' => $allLines];
     }
 
     public function top(): array
