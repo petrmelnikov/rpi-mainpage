@@ -1,6 +1,23 @@
 <div class="row">
     <div class="col-sm">
         <?php
+        $requestPath = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+        $isUpdateOpsPage = in_array($requestPath, ['/update-code', '/rebuild-containers'], true);
+        ?>
+
+        <?php if ($isUpdateOpsPage): ?>
+            <div class="mb-3 d-flex gap-2 flex-wrap">
+                <form method="post" action="/update-code" class="m-0">
+                    <button type="submit" class="btn btn-primary">⬇️ Pull update</button>
+                </form>
+
+                <form method="post" action="/rebuild-containers" class="m-0" onsubmit="return confirm('Rebuild and restart Docker containers now?');">
+                    <button type="submit" class="btn btn-danger">♻️ Rebuild containers</button>
+                </form>
+            </div>
+        <?php endif; ?>
+
+        <?php
         /** @var array|string $shellCommandRawContent */
         $raw = is_array($shellCommandRawContent)
             ? implode("\n", $shellCommandRawContent)

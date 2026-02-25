@@ -9,6 +9,20 @@ class SystemController
 {
     private string $appRoot = '';
 
+    private static function sanitizeShellLines(array $lines): array
+    {
+        $clean = [];
+        foreach ($lines as $line) {
+            $line = (string)$line;
+            if (preg_match('/^declare -x\s+/', $line) === 1) {
+                continue;
+            }
+            $clean[] = $line;
+        }
+
+        return $clean;
+    }
+
     public function registerRoutes(Router $router, string $appRoot): void
     {
         $this->appRoot = $appRoot;
@@ -17,6 +31,8 @@ class SystemController
         $router->addRoute('GET', '/top', [$this, 'top'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('GET', '/update-code', [$this, 'updateCode'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('POST', '/update-code', [$this, 'updateCode'], $appRoot . '/templates/shell_command_raw_content.html.php');
+        $router->addRoute('GET', '/rebuild-containers', [$this, 'rebuildContainers'], $appRoot . '/templates/shell_command_raw_content.html.php');
+        $router->addRoute('POST', '/rebuild-containers', [$this, 'rebuildContainers'], $appRoot . '/templates/shell_command_raw_content.html.php');
     }
 
     public function index(): array
@@ -56,12 +72,43 @@ class SystemController
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
         return ['shellCommandRawContent' => array_merge(
-            ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
+            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
                 $pathPrefix . 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git -C ' . $appRootArg . ' pull --ff-only 2>&1'
-            )),
-            ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
+            ))),
+            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
                 $pathPrefix . 'if command -v composer >/dev/null 2>&1; then composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/local/bin/composer ]; then /usr/local/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/bin/composer ]; then /usr/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; else if [ -d ' . $appRootArg . '/vendor ]; then echo "composer not found; skipping (vendor/ exists)"; else echo "composer not found; install it (e.g. sudo apt-get install composer)"; fi; fi'
-            ))
+            )))
+        )];
+    }
+
+    public function rebuildContainers(): array
+    {
+        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
+
+        $localAppRoot = $this->appRoot !== '' ? $this->appRoot : getcwd();
+        $remoteAppRoot = getenv('SSH_REMOTE_APP_DIR') ?: '/apps/rpi-mainpage';
+        $targetAppRoot = $isShellOverSsh ? $remoteAppRoot : $localAppRoot;
+        $appRootArg = escapeshellarg($targetAppRoot);
+
+        $wrapCommand = static function (string $command) use ($isShellOverSsh): string {
+            if ($isShellOverSsh) {
+                return $command;
+            }
+
+            return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
+        };
+
+        $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
+
+        $command = $pathPrefix
+            . 'if docker compose version >/dev/null 2>&1; then docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'elif command -v docker-compose >/dev/null 2>&1; then docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'elif sudo -n docker compose version >/dev/null 2>&1; then sudo -n docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'elif sudo -n docker-compose version >/dev/null 2>&1; then sudo -n docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'else echo "docker compose not found or not permitted for current user"; fi';
+
+        return ['shellCommandRawContent' => self::sanitizeShellLines(
+            ShellCommandExecutor::executeWithSplitByLines($wrapCommand($command))
         )];
     }
 }
