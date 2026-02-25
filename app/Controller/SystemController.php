@@ -101,10 +101,18 @@ class SystemController
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
         $command = $pathPrefix
-            . 'if docker compose version >/dev/null 2>&1; then docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
-            . 'elif command -v docker-compose >/dev/null 2>&1; then docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
-            . 'elif sudo -n docker compose version >/dev/null 2>&1; then sudo -n docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
-            . 'elif sudo -n docker-compose version >/dev/null 2>&1; then sudo -n docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'if docker compose version >/dev/null 2>&1; then '
+            . 'docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
+            . 'sudo -n docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
+            . 'echo "docker compose failed (check docker group or sudoers for this user)"; '
+            . 'elif command -v docker-compose >/dev/null 2>&1; then '
+            . 'docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
+            . 'sudo -n docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
+            . 'echo "docker-compose failed (check docker group or sudoers for this user)"; '
+            . 'elif sudo -n docker compose version >/dev/null 2>&1; then '
+            . 'sudo -n docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'elif sudo -n docker-compose version >/dev/null 2>&1; then '
+            . 'sudo -n docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
             . 'else echo "docker compose not found or not permitted for current user"; fi';
 
         return ['shellCommandRawContent' => self::sanitizeShellLines(
