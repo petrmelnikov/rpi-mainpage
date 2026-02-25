@@ -785,6 +785,8 @@ class FileIndexController
 
     public function downloadJobs(): array
     {
+        $this->triggerDownloadQueueProcessor();
+
         $queue = new DownloadQueueManager();
         $jobs = $queue->listJobs(300);
 
@@ -795,6 +797,8 @@ class FileIndexController
 
     public function downloadJobsStatus(): void
     {
+        $this->triggerDownloadQueueProcessor();
+
         $queue = new DownloadQueueManager();
         $jobs = $queue->listJobs(300);
 
@@ -812,12 +816,15 @@ class FileIndexController
             return;
         }
 
-        $phpBin = PHP_BINARY ?: 'php';
+        // Under PHP-FPM, PHP_BINARY may point to php-fpm, not PHP CLI.
+        $phpBin = '/usr/local/bin/php';
         $logFile = rtrim((string)sys_get_temp_dir(), '/') . '/rpi-mainpage-download-queue.log';
-        $cmd = escapeshellarg($phpBin)
-            . ' ' . escapeshellarg($scriptPath)
+        $run = '[ -x ' . escapeshellarg($phpBin) . ' ] || phpBin=$(command -v php 2>/dev/null) || phpBin=php; '
+            . 'nohup "${phpBin:-' . $phpBin . '}" ' . escapeshellarg($scriptPath)
             . ' >> ' . escapeshellarg($logFile)
-            . ' 2>&1 &';
+            . ' 2>&1 < /dev/null &';
+
+        $cmd = 'sh -lc ' . escapeshellarg($run);
 
         @shell_exec($cmd);
     }
