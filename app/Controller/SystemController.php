@@ -56,12 +56,21 @@ class SystemController
         // Hide those lines and show explicit human-readable df output below.
         $sysInfoLines = array_values(array_filter($sysInfoLines, static fn(string $line): bool => !$isRawUsbDfLine($line)));
 
+        // Use the same command user runs manually for consistency.
         $usbDiskLines = self::sanitizeShellLines(
-            ShellCommandExecutor::executeWithSplitByLines("df -hP | grep '/media/usb' 2>&1")
+            ShellCommandExecutor::executeWithSplitByLines("df -h | grep 'usb' 2>&1")
         );
 
-        $allLines = array_merge($sysInfoLines, $usbDiskLines);
-        $allLines = array_values(array_filter($allLines, static fn(string $line): bool => !$isRawUsbDfLine($line)));
+        $usbDiskLines = array_values(array_filter($usbDiskLines, static fn(string $line): bool => trim($line) !== ''));
+
+        $allLines = $sysInfoLines;
+        if (count($usbDiskLines) > 0) {
+            $allLines[] = '';
+            $allLines[] = 'USB mounts (df -h):';
+            foreach ($usbDiskLines as $line) {
+                $allLines[] = $line;
+            }
+        }
 
         return ['shellCommandRawContent' => $allLines];
     }
