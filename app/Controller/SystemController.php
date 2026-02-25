@@ -37,10 +37,21 @@ class SystemController
 
     public function index(): array
     {
-        return ['shellCommandRawContent' => array_merge(
-            ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo 2>&1'),
-            ShellCommandExecutor::executeWithSplitByLines("df -h | grep 'usb' 2>&1")
-        )];
+        $sysInfoLines = self::sanitizeShellLines(
+            ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo 2>&1')
+        );
+
+        // landscape-sysinfo may print raw 1K-block disk values for USB mounts.
+        // Hide those lines and show explicit human-readable df output below.
+        $sysInfoLines = array_values(array_filter($sysInfoLines, static function (string $line): bool {
+            return preg_match('/^\S+\s+\d{7,}\s+\d{7,}\s+\d{7,}\s+\d+%\s+\/media\/usb/i', $line) !== 1;
+        }));
+
+        $usbDiskLines = self::sanitizeShellLines(
+            ShellCommandExecutor::executeWithSplitByLines("df -hP | grep '/media/usb' 2>&1")
+        );
+
+        return ['shellCommandRawContent' => array_merge($sysInfoLines, $usbDiskLines)];
     }
 
     public function top(): array
