@@ -523,6 +523,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentVideoPath = null;
     let timeUpdateTimeout = null;
     let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
+    let currentVideoProgressRequest = null;
+    const prefetchedVideoProgress = new Map();
     let holdSpeedRestoreValue = 1;
     let holdSpeedTimeout = null;
     let holdToSpeedActive = false;
@@ -579,6 +581,10 @@ document.addEventListener('DOMContentLoaded', function() {
     async function getSavedVideoTime(path) {
         if (!path) return 0;
 
+        if (prefetchedVideoProgress.has(path)) {
+            return prefetchedVideoProgress.get(path) || 0;
+        }
+
         try {
             const url = '/file-index/video-progress?path=' + encodeURIComponent(path);
             const response = await fetch(url, { method: 'GET' });
@@ -587,11 +593,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const payload = await response.json();
             if (!payload || !payload.ok) return 0;
 
-            return parseFloat(payload.time || 0);
+            const savedTime = parseFloat(payload.time || 0);
+            prefetchedVideoProgress.set(path, savedTime);
+            return savedTime;
         } catch (e) {
             console.error("Failed to get video time from backend", e);
             return 0;
         }
+    }
+
+    function prefetchSavedVideoTime(path) {
+        if (!path) return;
+        if (prefetchedVideoProgress.has(path)) return;
+        void getSavedVideoTime(path);
     }
 
     function restoreSavedVideoTimeAsync(pathForRequest) {
@@ -599,7 +613,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        void getSavedVideoTime(pathForRequest).then((savedTime) => {
+        const progressRequest = currentVideoProgressRequest || getSavedVideoTime(pathForRequest);
+
+        void progressRequest.then((savedTime) => {
             if (!player || currentVideoPath !== pathForRequest) {
                 return;
             }
@@ -617,6 +633,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? Math.max(0, Math.min(duration, savedTime))
                 : Math.max(0, savedTime);
             player.currentTime = boundedTime;
+            prefetchedVideoProgress.set(pathForRequest, boundedTime);
         });
     }
 
@@ -867,6 +884,7 @@ document.addEventListener('DOMContentLoaded', function() {
             player.pause();
             isVideoReadyForSave = false;
             currentVideoPath = null;
+            currentVideoProgressRequest = null;
         }
     });
     
@@ -877,9 +895,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         currentVideoPath = playBtn.dataset.videoPath; // Store current video path
         const videoName = playBtn.dataset.videoName;
-        
+
         if (!currentVideoPath) return;
-        
+
+        prefetchSavedVideoTime(currentVideoPath);
+        currentVideoProgressRequest = getSavedVideoTime(currentVideoPath);
+
         initPlyr();
         
         isVideoReadyForSave = false;

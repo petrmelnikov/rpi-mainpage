@@ -6,7 +6,8 @@ class ShellCommandExecutor
 {
     public static function execute(string $command): string
     {
-        $result = shell_exec($command);
+        $effectiveCommand = self::buildEffectiveCommand($command);
+        $result = shell_exec($effectiveCommand);
 
         if ($result === null) {
             throw new \RuntimeException('Command execution failed');
@@ -25,5 +26,19 @@ class ShellCommandExecutor
             ];
         }
         return explode("\n", $result);
+    }
+
+    private static function buildEffectiveCommand(string $command): string
+    {
+        if (getenv('SHELL_OVER_SSH') !== '1') {
+            return $command;
+        }
+
+        $wrapper = '/usr/local/bin/run-over-ssh.sh';
+        if (!is_executable($wrapper)) {
+            return $command;
+        }
+
+        return escapeshellcmd($wrapper) . ' ' . escapeshellarg($command);
     }
 }
