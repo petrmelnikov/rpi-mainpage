@@ -103,6 +103,22 @@ class FileIndexController
         return is_string($result) && trim($result) !== '';
     }
 
+    private static function isDirectoryWritableForOperation(string $dir): bool
+    {
+        if (getenv('SHELL_OVER_SSH') === '1') {
+            $checkCmd = '[ -d ' . escapeshellarg($dir) . ' ] && [ -w ' . escapeshellarg($dir) . ' ] && echo __WRITABLE__ || true';
+            try {
+                $result = ShellCommandExecutor::execute($checkCmd);
+            } catch (\RuntimeException) {
+                return false;
+            }
+
+            return str_contains($result, '__WRITABLE__');
+        }
+
+        return @is_writable($dir);
+    }
+
     private static function downloadByUrlToDirectory(string $url, string $targetDir): array
     {
         $escapedDir = escapeshellarg($targetDir);
@@ -479,7 +495,7 @@ class FileIndexController
         if (!is_dir($parentFullPath)) {
             self::redirectWithError($redirectUrl, 'Parent directory not found');
         }
-        if (!is_writable($parentFullPath)) {
+        if (!self::isDirectoryWritableForOperation($parentFullPath)) {
             self::redirectWithError($redirectUrl, 'Parent directory is not writable');
         }
         if (file_exists($targetFullPath)) {
@@ -618,7 +634,7 @@ class FileIndexController
         if (!is_dir($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory not found');
         }
-        if (!is_writable($targetDir)) {
+        if (!self::isDirectoryWritableForOperation($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory is not writable');
         }
 
@@ -724,7 +740,7 @@ class FileIndexController
         if (!is_dir($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory not found');
         }
-        if (getenv('SHELL_OVER_SSH') !== '1' && !@is_writable($targetDir)) {
+        if (!self::isDirectoryWritableForOperation($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory is not writable');
         }
 
@@ -775,7 +791,7 @@ class FileIndexController
         if (!is_dir($targetDir)) {
             self::jsonResponse(['ok' => false, 'error' => 'Target directory not found'], 404);
         }
-        if (!is_writable($targetDir)) {
+        if (!self::isDirectoryWritableForOperation($targetDir)) {
             self::jsonResponse(['ok' => false, 'error' => 'Target directory is not writable'], 403);
         }
 
@@ -1010,7 +1026,7 @@ class FileIndexController
         if (!is_dir($targetDir)) {
             self::jsonResponse(['ok' => false, 'error' => 'Target directory not found'], 404);
         }
-        if (!is_writable($targetDir)) {
+        if (!self::isDirectoryWritableForOperation($targetDir)) {
             self::jsonResponse(['ok' => false, 'error' => 'Target directory is not writable'], 403);
         }
 
@@ -1666,7 +1682,7 @@ class FileIndexController
         $xml .= '</' . $rootName . ">\n";
 
         $parentDir = dirname($nfoFullPath);
-        if (!is_dir($parentDir) || !is_writable($parentDir)) {
+        if (!is_dir($parentDir) || !self::isDirectoryWritableForOperation($parentDir)) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => 'Target directory is not writable']);
             exit;
