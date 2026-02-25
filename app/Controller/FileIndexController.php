@@ -74,6 +74,18 @@ class FileIndexController
         exit;
     }
 
+    private static function prepareBinaryStreamResponse(): void
+    {
+        // Prevent any buffered/debug output from corrupting binary payloads.
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+    }
+
     private static function commandExists(string $command): bool
     {
         $result = @shell_exec('command -v ' . escapeshellarg($command) . ' 2>/dev/null');
@@ -1136,6 +1148,8 @@ class FileIndexController
         header('X-Archive-Name: ' . $archiveName);
         header('X-Source-Path: ' . basename($fullPath));
 
+        self::prepareBinaryStreamResponse();
+
         $descriptorspec = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
@@ -1152,7 +1166,6 @@ class FileIndexController
                 $chunk = fread($pipes[1], 8192);
                 if ($chunk !== false && $chunk !== '') {
                     echo $chunk;
-                    ob_flush();
                     flush();
                 }
             }
@@ -1253,6 +1266,8 @@ class FileIndexController
         header('Cache-Control: public, max-age=3600');
         header('Content-Disposition: inline');
 
+        self::prepareBinaryStreamResponse();
+
         $handle = fopen($fullPath, 'rb');
         if ($handle) {
             if ($start > 0) {
@@ -1266,7 +1281,6 @@ class FileIndexController
                 if ($chunk !== false) {
                     echo $chunk;
                     $remaining -= strlen($chunk);
-                    ob_flush();
                     flush();
                 }
             }
@@ -1438,13 +1452,14 @@ class FileIndexController
         header('X-File-Name: ' . $fileName);
         header('X-File-Size: ' . $fileSize);
 
+        self::prepareBinaryStreamResponse();
+
         $handle = fopen($fullPath, 'rb');
         if ($handle) {
             while (!feof($handle)) {
                 $chunk = fread($handle, 8192);
                 if ($chunk !== false) {
                     echo $chunk;
-                    ob_flush();
                     flush();
                 }
             }
