@@ -110,6 +110,9 @@
                             <div class="col-12 col-lg-2">
                                 <button type="submit" class="btn btn-outline-success w-100">⬇️ Download</button>
                             </div>
+                            <div class="col-12 col-lg-2">
+                                <a href="/file-index/download-jobs" class="btn btn-outline-secondary w-100">📋 Queue</a>
+                            </div>
                         </form>
                     </div>
                 </div>

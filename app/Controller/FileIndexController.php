@@ -2,6 +2,8 @@
 
 namespace App\Controller;
 
+use App\App;
+use App\DownloadQueueManager;
 use App\FileIndexManager;
 use App\Router;
 use App\ShellCommandExecutor;
@@ -9,6 +11,8 @@ use App\Support\PathGuard;
 
 class FileIndexController
 {
+    private string $appRoot = '';
+
     private static function buildRedirectUrl(string $returnPath): string
     {
         $redirectUrl = '/file-index';
@@ -123,7 +127,7 @@ class FileIndexController
         return true;
     }
 
-    private static function downloadByUrlToDirectory(string $url, string $targetDir): array
+    public static function downloadByUrlToDirectory(string $url, string $targetDir): array
     {
         $escapedDir = escapeshellarg($targetDir);
         $escapedUrl = escapeshellarg($url);
@@ -341,6 +345,8 @@ class FileIndexController
 
     public function registerRoutes(Router $router, string $appRoot): void
     {
+        $this->appRoot = $appRoot;
+
         $router->addRoute('GET', '/file-index', [$this, 'index'], $appRoot . '/templates/file_index.html.php');
         $router->addRoute('POST', '/file-index/delete', [$this, 'delete']);
         $router->addRoute('POST', '/file-index/dir/create', [$this, 'createDirectory']);
@@ -348,6 +354,8 @@ class FileIndexController
         $router->addRoute('POST', '/file-index/dir/rename', [$this, 'renameDirectory']);
         $router->addRoute('POST', '/file-index/upload', [$this, 'uploadFile']);
         $router->addRoute('POST', '/file-index/download-url', [$this, 'downloadByUrl']);
+        $router->addRoute('GET', '/file-index/download-jobs', [$this, 'downloadJobs'], $appRoot . '/templates/download_jobs.html.php');
+        $router->addRoute('GET', '/file-index/download-jobs/status', [$this, 'downloadJobsStatus']);
         $router->addRoute('POST', '/file-index/upload/init', [$this, 'uploadInit']);
         $router->addRoute('POST', '/file-index/upload/status', [$this, 'uploadStatus']);
         $router->addRoute('POST', '/file-index/upload/chunk', [$this, 'uploadChunk']);
@@ -766,13 +774,52 @@ class FileIndexController
             self::redirectWithError($redirectUrl, 'Target directory is not writable');
         }
 
-        $result = self::downloadByUrlToDirectory($url, $targetDir);
-        if (!($result['ok'] ?? false)) {
-            self::redirectWithError($redirectUrl, 'Download failed. ' . ($result['error'] ?? 'Unknown error'));
+        $queue = new DownloadQueueManager();
+        $queue->enqueue($url, $targetDir, PathGuard::segmentsToRelativePath($targetSegments));
+
+        $this->triggerDownloadQueueProcessor();
+
+        header('Location: /file-index/download-jobs');
+        exit;
+    }
+
+    public function downloadJobs(): array
+    {
+        $queue = new DownloadQueueManager();
+        $jobs = $queue->listJobs(300);
+
+        return [
+            'jobs' => $jobs,
+        ];
+    }
+
+    public function downloadJobsStatus(): void
+    {
+        $queue = new DownloadQueueManager();
+        $jobs = $queue->listJobs(300);
+
+        self::jsonResponse([
+            'ok' => true,
+            'jobs' => $jobs,
+        ]);
+    }
+
+    private function triggerDownloadQueueProcessor(): void
+    {
+        $appRoot = $this->appRoot !== '' ? $this->appRoot : (App::getInstance()->appRoot ?: getcwd());
+        $scriptPath = rtrim($appRoot, '/') . '/scripts/process-download-queue.php';
+        if (!is_file($scriptPath)) {
+            return;
         }
 
-        header('Location: ' . $redirectUrl);
-        exit;
+        $phpBin = PHP_BINARY ?: 'php';
+        $logFile = rtrim((string)sys_get_temp_dir(), '/') . '/rpi-mainpage-download-queue.log';
+        $cmd = escapeshellarg($phpBin)
+            . ' ' . escapeshellarg($scriptPath)
+            . ' >> ' . escapeshellarg($logFile)
+            . ' 2>&1 &';
+
+        @shell_exec($cmd);
     }
 
     /**
