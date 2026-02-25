@@ -801,6 +801,25 @@ class FileIndexController
         if ($chunkSizeInt <= 0) {
             $chunkSizeInt = 4 * 1024 * 1024; // 4MB default
         }
+
+        // Keep chunks within PHP request limits to avoid UPLOAD_ERR_INI_SIZE.
+        $uploadMaxBytes = self::iniSizeToBytes((string)ini_get('upload_max_filesize'));
+        $postMaxBytes = self::iniSizeToBytes((string)ini_get('post_max_size'));
+        $phpLimit = 0;
+        if ($uploadMaxBytes > 0 && $postMaxBytes > 0) {
+            $phpLimit = min($uploadMaxBytes, $postMaxBytes);
+        } elseif ($uploadMaxBytes > 0) {
+            $phpLimit = $uploadMaxBytes;
+        } elseif ($postMaxBytes > 0) {
+            $phpLimit = $postMaxBytes;
+        }
+
+        if ($phpLimit > 0) {
+            // Reserve headroom for multipart/form-data overhead.
+            $safePhpChunkLimit = max(256 * 1024, $phpLimit - 256 * 1024);
+            $chunkSizeInt = min($chunkSizeInt, $safePhpChunkLimit);
+        }
+
         $chunkSizeInt = max(256 * 1024, min($chunkSizeInt, 50 * 1024 * 1024));
         $totalChunks = (int)ceil($sizeInt / $chunkSizeInt);
 
@@ -949,7 +968,7 @@ class FileIndexController
         $err = (int)($upload['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($err !== UPLOAD_ERR_OK) {
             $msg = match ($err) {
-                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Uploaded chunk is too large',
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Uploaded chunk is too large (upload_max_filesize=' . ini_get('upload_max_filesize') . ', post_max_size=' . ini_get('post_max_size') . ')',
                 UPLOAD_ERR_PARTIAL => 'Chunk upload was incomplete',
                 UPLOAD_ERR_NO_FILE => 'Missing chunk file',
                 UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder on server',
