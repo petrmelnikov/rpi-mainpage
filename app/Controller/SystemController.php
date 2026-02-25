@@ -48,6 +48,42 @@ class SystemController
             return preg_match('/^\S+\s+\d+\s+\d+\s+\d+\s+\d+%\s+\/media\/usb/i', $plain) === 1;
         };
 
+        $humanizeKib = static function (float $kib): string {
+            $bytes = $kib * 1024.0;
+            $units = ['B', 'K', 'M', 'G', 'T', 'P'];
+            $i = 0;
+            while ($bytes >= 1024.0 && $i < count($units) - 1) {
+                $bytes /= 1024.0;
+                $i++;
+            }
+
+            if ($bytes >= 10 || $i === 0) {
+                return (string)round($bytes) . $units[$i];
+            }
+
+            return number_format($bytes, 1, '.', '') . $units[$i];
+        };
+
+        $normalizeUsbDfLine = static function (string $line) use ($stripAnsi, $isRawUsbDfLine, $humanizeKib): string {
+            $plain = trim($stripAnsi($line));
+            if (!$isRawUsbDfLine($plain)) {
+                return $plain;
+            }
+
+            if (!preg_match('/^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+%)\s+(\/media\/usb\S*)$/i', $plain, $m)) {
+                return $plain;
+            }
+
+            $device = $m[1];
+            $size = $humanizeKib((float)$m[2]);
+            $used = $humanizeKib((float)$m[3]);
+            $avail = $humanizeKib((float)$m[4]);
+            $usep = $m[5];
+            $mount = $m[6];
+
+            return $device . '  ' . $size . '  ' . $used . '  ' . $avail . '  ' . $usep . '  ' . $mount;
+        };
+
         $sysInfoLines = self::sanitizeShellLines(
             ShellCommandExecutor::executeWithSplitByLines('landscape-sysinfo 2>&1')
         );
@@ -62,6 +98,7 @@ class SystemController
         );
 
         $usbDiskLines = array_values(array_filter($usbDiskLines, static fn(string $line): bool => trim($line) !== ''));
+        $usbDiskLines = array_values(array_map(static fn(string $line): string => $normalizeUsbDfLine($line), $usbDiskLines));
 
         $allLines = $sysInfoLines;
         if (count($usbDiskLines) > 0) {
