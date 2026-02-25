@@ -203,13 +203,18 @@ class FileIndexController
     {
         $candidates = [];
 
-        // Prefer RAM-backed tmpfs on Linux if available.
-        $candidates[] = '/dev/shm/rpi-mainpage-upload';
+        $customBase = trim((string)getenv('UPLOAD_BASE_DIR'));
+        if ($customBase !== '') {
+            $candidates[] = rtrim($customBase, '/') . '/rpi-mainpage-upload';
+        }
 
         $tmp = rtrim((string)sys_get_temp_dir(), '/');
         if ($tmp !== '') {
             $candidates[] = $tmp . '/rpi-mainpage-upload';
         }
+
+        // Keep /dev/shm only as fallback (it is often small in Docker, e.g. 64MB).
+        $candidates[] = '/dev/shm/rpi-mainpage-upload';
 
         foreach ($candidates as $dir) {
             if (@is_dir($dir) || @mkdir($dir, 0775, true)) {
