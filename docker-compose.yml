@@ -1,0 +1,31 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: rpi-mainpage-app
+    volumes:
+      - ./:/app
+      - ${HOST_MEDIA_ROOT:-/media}:/media
+    env_file:
+      - .env.ssh
+    environment:
+      SHELL_OVER_SSH: "1"
+      SSH_REMOTE_HOST: ${SSH_REMOTE_HOST:-host.docker.internal}
+      SSH_REMOTE_PORT: ${SSH_REMOTE_PORT:-22}
+      SSH_REMOTE_USER: ${SSH_REMOTE_USER:-ubuntu}
+      SSH_CONTROL_PATH: /tmp/ssh/cm-%r@%h:%p
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["/usr/local/bin/init-ssh-and-run.sh", "php-fpm", "-F"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: rpi-mainpage-nginx
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./:/app:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
