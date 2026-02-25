@@ -1,5 +1,8 @@
 # RPI Mainpage Server Setup
 
+> Legacy systemd + php built-in server instructions.
+> For current setup use [DOCKER_SSH_README.md](DOCKER_SSH_README.md).
+
 This directory contains scripts to run your PHP application on Orange Pi with autostart capability.
 
 ## Files Created
@@ -8,6 +11,7 @@ This directory contains scripts to run your PHP application on Orange Pi with au
 - `systemd_stop_server.sh` - Server stop script (systemd)
 - `rpi-mainpage.service` - Systemd service file for autostart
 - `systemd_install.sh` - Automated installation script (systemd)
+- `systemd_uninstall.sh` - Remove systemd service cleanly
 
 ## Quick Installation
 
@@ -77,6 +81,9 @@ sudo systemctl enable rpi-mainpage
 
 # Disable autostart
 sudo systemctl disable rpi-mainpage
+
+# Uninstall service and remove unit file
+sudo ./systemd_uninstall.sh
 ```
 
 ### Direct Script Usage

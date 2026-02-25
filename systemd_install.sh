@@ -57,6 +57,7 @@ print_status "Using repository directory: $REPO_DIR"
 chmod +x "$REPO_DIR/systemd_start_server.sh" || true
 chmod +x "$REPO_DIR/systemd_stop_server.sh" || true
 chmod +x "$REPO_DIR/systemd_install.sh" || true
+chmod +x "$REPO_DIR/systemd_uninstall.sh" || true
 
 # Install composer dependencies if composer is available
 if command -v composer &> /dev/null; then
