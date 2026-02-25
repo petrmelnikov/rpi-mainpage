@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\FileIndexManager;
 use App\Router;
+use App\ShellCommandExecutor;
 use App\Support\PathGuard;
 
 class FileIndexController
@@ -88,6 +89,16 @@ class FileIndexController
 
     private static function commandExists(string $command): bool
     {
+        if (getenv('SHELL_OVER_SSH') === '1') {
+            try {
+                $result = ShellCommandExecutor::execute('command -v ' . escapeshellarg($command) . ' 2>/dev/null || true');
+            } catch (\RuntimeException) {
+                return false;
+            }
+
+            return trim($result) !== '';
+        }
+
         $result = @shell_exec('command -v ' . escapeshellarg($command) . ' 2>/dev/null');
         return is_string($result) && trim($result) !== '';
     }
@@ -96,6 +107,7 @@ class FileIndexController
     {
         $escapedDir = escapeshellarg($targetDir);
         $escapedUrl = escapeshellarg($url);
+        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
 
         $commands = [];
         if (self::commandExists('aria2c')) {
@@ -119,7 +131,30 @@ class FileIndexController
         foreach ($commands as $item) {
             $output = [];
             $exitCode = 1;
-            @exec($item['cmd'], $output, $exitCode);
+
+            if ($isShellOverSsh) {
+                $marker = '__CMD_EXIT_CODE__';
+                $wrapped = $item['cmd'] . '; printf "\\n' . $marker . '%s\\n" "$?"';
+                try {
+                    $raw = ShellCommandExecutor::execute($wrapped);
+                } catch (\RuntimeException $e) {
+                    $raw = $e->getMessage();
+                }
+
+                $output = explode("\n", (string)$raw);
+                for ($i = count($output) - 1; $i >= 0; $i--) {
+                    $line = trim((string)$output[$i]);
+                    if (str_starts_with($line, $marker)) {
+                        $exitCode = (int)substr($line, strlen($marker));
+                        unset($output[$i]);
+                        break;
+                    }
+                }
+                $output = array_values($output);
+            } else {
+                @exec($item['cmd'], $output, $exitCode);
+            }
+
             if ($exitCode === 0) {
                 return ['ok' => true, 'tool' => $item['tool']];
             }
@@ -688,7 +723,7 @@ class FileIndexController
         if (!is_dir($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory not found');
         }
-        if (!@is_writable($targetDir)) {
+        if (getenv('SHELL_OVER_SSH') !== '1' && !@is_writable($targetDir)) {
             self::redirectWithError($redirectUrl, 'Target directory is not writable');
         }
 
