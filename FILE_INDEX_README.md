@@ -60,7 +60,6 @@ Settings are stored in `config/file_index.json`:
 
 ## Deletion Notes
 - File deletion is performed via a POST request to the server and requires **write permissions** on the parent directory.
-- If you run the app via systemd with additional hardening, ensure the unit does not block writes to your catalog path (see [SERVER_SETUP_README.md](SERVER_SETUP_README.md)).
 
 ## Download Functionality
 - **Individual files**: Each file has a download button that serves the file directly in its original format
