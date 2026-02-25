@@ -74,6 +74,50 @@ class FileIndexController
         exit;
     }
 
+    private static function commandExists(string $command): bool
+    {
+        $result = @shell_exec('command -v ' . escapeshellarg($command) . ' 2>/dev/null');
+        return is_string($result) && trim($result) !== '';
+    }
+
+    private static function downloadByUrlToDirectory(string $url, string $targetDir): array
+    {
+        $escapedDir = escapeshellarg($targetDir);
+        $escapedUrl = escapeshellarg($url);
+
+        $commands = [];
+        if (self::commandExists('aria2c')) {
+            $commands[] = [
+                'tool' => 'aria2c',
+                'cmd' => 'aria2c --allow-overwrite=false --auto-file-renaming=false --dir=' . $escapedDir . ' -- ' . $escapedUrl . ' 2>&1',
+            ];
+        }
+        if (self::commandExists('wget')) {
+            $commands[] = [
+                'tool' => 'wget',
+                'cmd' => 'wget -P ' . $escapedDir . ' -- ' . $escapedUrl . ' 2>&1',
+            ];
+        }
+
+        if (count($commands) === 0) {
+            return ['ok' => false, 'error' => 'Neither aria2c nor wget is available on the server'];
+        }
+
+        $errors = [];
+        foreach ($commands as $item) {
+            $output = [];
+            $exitCode = 1;
+            @exec($item['cmd'], $output, $exitCode);
+            if ($exitCode === 0) {
+                return ['ok' => true, 'tool' => $item['tool']];
+            }
+            $tail = trim((string)implode("\n", array_slice($output, -5)));
+            $errors[] = $item['tool'] . ($tail !== '' ? (': ' . $tail) : ': failed with exit code ' . $exitCode);
+        }
+
+        return ['ok' => false, 'error' => implode(' | ', $errors)];
+    }
+
     private static function getUploadBaseDir(): string
     {
         $candidates = [];
@@ -217,6 +261,7 @@ class FileIndexController
         $router->addRoute('POST', '/file-index/dir/delete', [$this, 'deleteDirectory']);
         $router->addRoute('POST', '/file-index/dir/rename', [$this, 'renameDirectory']);
         $router->addRoute('POST', '/file-index/upload', [$this, 'uploadFile']);
+        $router->addRoute('POST', '/file-index/download-url', [$this, 'downloadByUrl']);
         $router->addRoute('POST', '/file-index/upload/init', [$this, 'uploadInit']);
         $router->addRoute('POST', '/file-index/upload/status', [$this, 'uploadStatus']);
         $router->addRoute('POST', '/file-index/upload/chunk', [$this, 'uploadChunk']);
@@ -591,6 +636,53 @@ class FileIndexController
             $lastError = error_get_last();
             $reason = $lastError['message'] ?? 'unknown error';
             self::redirectWithError($redirectUrl, 'Failed to save uploaded file: ' . $reason);
+        }
+
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
+    public function downloadByUrl(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+
+        $returnPath = (string)($_POST['returnPath'] ?? '');
+        $targetPath = (string)($_POST['targetPath'] ?? '');
+        $url = trim((string)($_POST['url'] ?? ''));
+
+        $redirectUrl = self::buildRedirectUrl($returnPath);
+
+        if ($url === '') {
+            self::redirectWithError($redirectUrl, 'Download URL is required');
+        }
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            self::redirectWithError($redirectUrl, 'Invalid download URL');
+        }
+
+        $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            self::redirectWithError($redirectUrl, 'Only HTTP/HTTPS URLs are supported');
+        }
+
+        try {
+            $targetSegments = PathGuard::toSegmentsAllowEmpty($targetPath);
+        } catch (\InvalidArgumentException $e) {
+            self::redirectWithError($redirectUrl, $e->getMessage());
+        }
+
+        $targetDir = PathGuard::joinCatalog($catalogPath, $targetSegments);
+        if (!is_dir($targetDir)) {
+            self::redirectWithError($redirectUrl, 'Target directory not found');
+        }
+        if (!@is_writable($targetDir)) {
+            self::redirectWithError($redirectUrl, 'Target directory is not writable');
+        }
+
+        $result = self::downloadByUrlToDirectory($url, $targetDir);
+        if (!($result['ok'] ?? false)) {
+            self::redirectWithError($redirectUrl, 'Download failed. ' . ($result['error'] ?? 'Unknown error'));
         }
 
         header('Location: ' . $redirectUrl);
