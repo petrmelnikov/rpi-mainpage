@@ -1,11 +1,9 @@
 services:
-  rpi-mainpage:
+  app:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
-    container_name: rpi-mainpage
-    ports:
-      - "8080:80"
+    container_name: rpi-mainpage-app
     volumes:
       - ./:/app
     env_file:
@@ -18,4 +16,15 @@ services:
       SSH_CONTROL_PATH: /tmp/ssh/cm-%r@%h:%p
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["/usr/local/bin/init-ssh-and-run.sh", "php", "-S", "0.0.0.0:80", "-t", "/app"]
+    command: ["/usr/local/bin/init-ssh-and-run.sh", "php-fpm", "-F"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: rpi-mainpage-nginx
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./:/app:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
