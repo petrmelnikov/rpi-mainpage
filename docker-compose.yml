@@ -14,6 +14,7 @@ services:
       SSH_REMOTE_HOST: ${SSH_REMOTE_HOST:-host.docker.internal}
       SSH_REMOTE_PORT: ${SSH_REMOTE_PORT:-22}
       SSH_REMOTE_USER: ${SSH_REMOTE_USER:-ubuntu}
+      SSH_REMOTE_APP_DIR: ${SSH_REMOTE_APP_DIR:-/apps/rpi-mainpage}
       SSH_CONTROL_PATH: /tmp/ssh/cm-%r@%h:%p
     extra_hosts:
       - "host.docker.internal:host-gateway"

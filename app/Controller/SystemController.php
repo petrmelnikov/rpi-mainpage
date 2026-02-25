@@ -35,7 +35,13 @@ class SystemController
 
     public function updateCode(): array
     {
-        $appRootArg = escapeshellarg($this->appRoot !== '' ? $this->appRoot : getcwd());
+        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
+
+        $localAppRoot = $this->appRoot !== '' ? $this->appRoot : getcwd();
+        $remoteAppRoot = getenv('SSH_REMOTE_APP_DIR') ?: '/apps/rpi-mainpage';
+        $targetAppRoot = $isShellOverSsh ? $remoteAppRoot : $localAppRoot;
+        $appRootArg = escapeshellarg($targetAppRoot);
+
         $wrapCommand = static function (string $command): string {
             // In Docker SSH mode we already connect as SSH_REMOTE_USER (default: ubuntu),
             // so extra sudo wrapping may fail and break pull/composer commands.
@@ -47,7 +53,7 @@ class SystemController
             return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
         };
 
-        $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
+        $pathPrefix = 'PATH=/usr/local/bin:/usr/bin:/bin:$PATH ';
 
         return ['shellCommandRawContent' => array_merge(
             ShellCommandExecutor::executeWithSplitByLines($wrapCommand(

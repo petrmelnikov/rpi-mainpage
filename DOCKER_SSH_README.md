@@ -13,6 +13,11 @@ What the script does:
 - writes `.env.ssh` with `SSH_REMOTE_HOST`, `SSH_REMOTE_PORT`, `SSH_REMOTE_USER`, `SSH_PRIVATE_KEY_B64`
 - appends the public key to remote `~/.ssh/authorized_keys` only if it is not already present (does not overwrite existing keys)
 
+Optional variable in `.env.ssh`:
+- `SSH_REMOTE_APP_DIR` — absolute path to this project on remote host (default: `/apps/rpi-mainpage`)
+
+This path is used by the **pull** button and composer install commands.
+
 ## 2) Start
 
 ```bash
