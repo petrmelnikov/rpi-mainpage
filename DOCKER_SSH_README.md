@@ -1,6 +1,6 @@
-# Docker + single SSH connection
+# Docker + Nginx + single SSH connection
 
-This setup runs the app in Docker and executes shell commands over one shared SSH connection.
+This setup runs the app in Docker behind Nginx (port 80) and executes shell commands over one shared SSH connection.
 
 ## 1) Prepare key and env
 
@@ -19,11 +19,19 @@ What the script does:
 docker compose up --build
 ```
 
-App is available at `http://localhost:8080`.
+App is available at `http://localhost` (port `80` by default).
+
+## Runtime architecture
+
+- `nginx` container serves HTTP on port `80`
+- `app` container runs `php-fpm`
+- Nginx forwards PHP requests to `app:9000`
+
+The app is **not** started with `php -S`.
 
 ## How single SSH session works
 
-Container entrypoint (`init-ssh-and-run.sh`) creates SSH config with:
+Container init (`init-ssh-and-run.sh`) creates SSH config with:
 - `ControlMaster auto`
 - `ControlPersist 10m`
 - `ControlPath /tmp/ssh/cm-%r@%h:%p`
