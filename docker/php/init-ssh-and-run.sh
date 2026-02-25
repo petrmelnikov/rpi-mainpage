@@ -38,7 +38,17 @@ Host remote-target
 EOF
 chmod 600 "$CONFIG_PATH"
 
-# Warm up the shared SSH connection once.
-ssh -F "$CONFIG_PATH" -MNf remote-target || true
+# Ensure PHP-FPM worker user can access SSH key/config.
+# By default php-fpm runs as www-data inside php:8.2-fpm.
+APP_RUN_USER="${APP_RUN_USER:-www-data}"
+if id "$APP_RUN_USER" >/dev/null 2>&1; then
+  chown -R "$APP_RUN_USER:$APP_RUN_USER" "$SSH_DIR"
+
+  # Warm up the shared SSH connection once as runtime user.
+  su -s /bin/sh -c "ssh -F '$CONFIG_PATH' -MNf remote-target || true" "$APP_RUN_USER" || true
+else
+  # Fallback if the runtime user does not exist.
+  ssh -F "$CONFIG_PATH" -MNf remote-target || true
+fi
 
 exec "$@"

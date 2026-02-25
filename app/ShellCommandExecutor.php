@@ -39,6 +39,6 @@ class ShellCommandExecutor
             return $command;
         }
 
-        return escapeshellcmd($wrapper) . ' ' . escapeshellarg($command);
+        return escapeshellcmd($wrapper) . ' ' . escapeshellarg($command) . ' 2>&1';
     }
 }
