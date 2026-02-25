@@ -169,21 +169,27 @@ class SystemController
 
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
-        $command = $pathPrefix
-            . 'if sudo -n docker compose version >/dev/null 2>&1; then '
-            . 'sudo -n docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+        $logFile = '/tmp/rpi-mainpage-rebuild.log';
+        $composeRun = 'cd ' . $appRootArg
+            . ' && if sudo -n docker compose version >/dev/null 2>&1; then '
+            . 'sudo -n docker compose up --build -d; '
             . 'elif sudo -n docker-compose version >/dev/null 2>&1; then '
-            . 'sudo -n docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1; '
+            . 'sudo -n docker-compose up --build -d; '
             . 'elif docker compose version >/dev/null 2>&1; then '
-            . 'docker compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
-            . 'echo "docker compose failed (check docker group for this user)"; '
+            . 'docker compose up --build -d; '
             . 'elif command -v docker-compose >/dev/null 2>&1; then '
-            . 'docker-compose -f ' . $appRootArg . '/docker-compose.yml up --build -d 2>&1 || '
-            . 'echo "docker-compose failed (check docker group for this user)"; '
-            . 'else echo "docker compose not found or not permitted for current user"; fi';
+            . 'docker-compose up --build -d; '
+            . 'else echo "docker compose not found or not permitted for current user"; exit 1; fi';
 
-        return ['shellCommandRawContent' => self::sanitizeShellLines(
-            ShellCommandExecutor::executeWithSplitByLines($wrapCommand($command))
-        )];
+        $bg = 'nohup sh -lc ' . escapeshellarg($composeRun . ' >> ' . escapeshellarg($logFile) . ' 2>&1')
+            . ' >/dev/null 2>&1 < /dev/null & echo "Rebuild started in background. Log: ' . $logFile . '"';
+
+        $lines = self::sanitizeShellLines(
+            ShellCommandExecutor::executeWithSplitByLines($wrapCommand($pathPrefix . $bg))
+        );
+
+        $lines[] = 'Tip: open server shell and run: tail -f ' . $logFile;
+
+        return ['shellCommandRawContent' => $lines];
     }
 }
