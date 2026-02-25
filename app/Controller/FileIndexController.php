@@ -109,25 +109,19 @@ class FileIndexController
         $escapedUrl = escapeshellarg($url);
         $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
 
-        $commands = [];
-        if (self::commandExists('aria2c')) {
-            $commands[] = [
+        $commands = [
+            [
                 'tool' => 'aria2c',
                 'cmd' => 'aria2c --allow-overwrite=false --auto-file-renaming=false --dir=' . $escapedDir . ' -- ' . $escapedUrl . ' 2>&1',
-            ];
-        }
-        if (self::commandExists('wget')) {
-            $commands[] = [
+            ],
+            [
                 'tool' => 'wget',
                 'cmd' => 'wget -P ' . $escapedDir . ' -- ' . $escapedUrl . ' 2>&1',
-            ];
-        }
-
-        if (count($commands) === 0) {
-            return ['ok' => false, 'error' => 'Neither aria2c nor wget is available on the server'];
-        }
+            ],
+        ];
 
         $errors = [];
+        $notFoundCount = 0;
         foreach ($commands as $item) {
             $output = [];
             $exitCode = 1;
@@ -159,7 +153,14 @@ class FileIndexController
                 return ['ok' => true, 'tool' => $item['tool']];
             }
             $tail = trim((string)implode("\n", array_slice($output, -5)));
+            if ($exitCode === 127 || stripos($tail, 'not found') !== false) {
+                $notFoundCount++;
+            }
             $errors[] = $item['tool'] . ($tail !== '' ? (': ' . $tail) : ': failed with exit code ' . $exitCode);
+        }
+
+        if ($notFoundCount === count($commands)) {
+            return ['ok' => false, 'error' => 'Neither aria2c nor wget is available on the server'];
         }
 
         return ['ok' => false, 'error' => implode(' | ', $errors)];
