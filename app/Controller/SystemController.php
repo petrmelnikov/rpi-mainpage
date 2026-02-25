@@ -36,17 +36,24 @@ class SystemController
     public function updateCode(): array
     {
         $appRootArg = escapeshellarg($this->appRoot !== '' ? $this->appRoot : getcwd());
-        $asUbuntu = static function (string $command): string {
+        $wrapCommand = static function (string $command): string {
+            // In Docker SSH mode we already connect as SSH_REMOTE_USER (default: ubuntu),
+            // so extra sudo wrapping may fail and break pull/composer commands.
+            if (getenv('SHELL_OVER_SSH') === '1') {
+                return $command;
+            }
+
+            // Legacy non-SSH mode: keep previous behavior.
             return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
         };
 
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
         return ['shellCommandRawContent' => array_merge(
-            ShellCommandExecutor::executeWithSplitByLines($asUbuntu(
+            ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
                 $pathPrefix . 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git -C ' . $appRootArg . ' pull --ff-only 2>&1'
             )),
-            ShellCommandExecutor::executeWithSplitByLines($asUbuntu(
+            ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
                 $pathPrefix . 'if command -v composer >/dev/null 2>&1; then composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/local/bin/composer ]; then /usr/local/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/bin/composer ]; then /usr/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; else if [ -d ' . $appRootArg . '/vendor ]; then echo "composer not found; skipping (vendor/ exists)"; else echo "composer not found; install it (e.g. sudo apt-get install composer)"; fi; fi'
             ))
         )];
