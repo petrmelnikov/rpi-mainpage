@@ -1,7 +1,7 @@
 FROM php:8.2-fpm
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client git unzip \
+    && apt-get install -y --no-install-recommends openssh-client git unzip wget aria2 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
