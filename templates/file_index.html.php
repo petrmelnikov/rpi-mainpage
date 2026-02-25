@@ -1219,7 +1219,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function runChunkedUpload(file, targetPath, returnPath, shouldRedirect = true) {
-        const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB
+        const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
+        const MAX_PARALLEL_CHUNKS = 3;
 
         setUploadError('');
         if (uploadHintEl) uploadHintEl.classList.remove('d-none');
@@ -1244,21 +1245,39 @@ document.addEventListener('DOMContentLoaded', function() {
         setUploadStatus(`Uploading ${file.name} (${done}/${totalChunks} chunks ready)…`);
         setUploadProgress((done / totalChunks) * 100);
 
+        const pendingChunks = [];
         for (let i = 0; i < totalChunks; i++) {
-            if (receivedSet.has(i)) {
-                continue;
+            if (!receivedSet.has(i)) {
+                pendingChunks.push(i);
             }
-            const start = i * chunkSize;
-            const end = Math.min(file.size, start + chunkSize);
-            const blob = file.slice(start, end);
-
-            setUploadStatus(`Uploading chunk ${i + 1}/${totalChunks}…`);
-            await uploadChunk(uploadId, i, blob, file.name);
-
-            receivedSet.add(i);
-            done++;
-            setUploadProgress((done / totalChunks) * 100);
         }
+
+        let queuePos = 0;
+        const workerCount = Math.min(MAX_PARALLEL_CHUNKS, pendingChunks.length || 1);
+
+        const uploadWorker = async () => {
+            while (true) {
+                const idx = queuePos;
+                queuePos++;
+                if (idx >= pendingChunks.length) {
+                    return;
+                }
+
+                const i = pendingChunks[idx];
+                const start = i * chunkSize;
+                const end = Math.min(file.size, start + chunkSize);
+                const blob = file.slice(start, end);
+
+                setUploadStatus(`Uploading ${file.name} (${done}/${totalChunks})…`);
+                await uploadChunk(uploadId, i, blob, file.name);
+
+                receivedSet.add(i);
+                done++;
+                setUploadProgress((done / totalChunks) * 100);
+            }
+        };
+
+        await Promise.all(Array.from({ length: workerCount }, () => uploadWorker()));
 
         setUploadStatus('Finalizing…');
         await postForm('/file-index/upload/finish', { uploadId });

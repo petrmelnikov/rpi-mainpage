@@ -13,6 +13,9 @@ RUN groupadd -g 1000 ubuntu || true \
 # Enforce pool runtime user/group explicitly (higher-priority include file).
 RUN printf "[www]\nuser = ubuntu\ngroup = ubuntu\n" > /usr/local/etc/php-fpm.d/zz-ubuntu-user.conf
 
+# Allow larger multipart chunks to reduce request overhead during uploads.
+RUN printf "upload_max_filesize=512M\npost_max_size=512M\nmemory_limit=1024M\n" > /usr/local/etc/php/conf.d/uploads.ini
+
 WORKDIR /app
 
 COPY docker/php/init-ssh-and-run.sh /usr/local/bin/init-ssh-and-run.sh
