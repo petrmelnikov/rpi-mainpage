@@ -6,6 +6,7 @@ services:
     container_name: rpi-mainpage-app
     volumes:
       - ./:/app
+      - ${HOST_MEDIA_ROOT:-/media}:/media
     env_file:
       - .env.ssh
     environment:

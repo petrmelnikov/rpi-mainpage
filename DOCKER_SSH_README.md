@@ -21,6 +21,21 @@ docker compose up --build
 
 App is available at `http://localhost` (port `80` by default).
 
+## File Index and host disks
+
+`app` container mounts host media path:
+
+- `${HOST_MEDIA_ROOT:-/media}:/media`
+
+So host directories like `/media/usb_ssd/...` are visible in container at the same path.
+
+If your files are not under `/media`, set env before start:
+
+```bash
+export HOST_MEDIA_ROOT=/your/host/path
+docker compose up --build -d
+```
+
 ## Runtime architecture
 
 - `nginx` container serves HTTP on port `80`
