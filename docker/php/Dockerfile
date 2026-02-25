@@ -10,6 +10,9 @@ RUN groupadd -g 1000 ubuntu || true \
     && sed -i 's/^user = .*/user = ubuntu/' /usr/local/etc/php-fpm.d/www.conf \
     && sed -i 's/^group = .*/group = ubuntu/' /usr/local/etc/php-fpm.d/www.conf
 
+# Enforce pool runtime user/group explicitly (higher-priority include file).
+RUN printf "[www]\nuser = ubuntu\ngroup = ubuntu\n" > /usr/local/etc/php-fpm.d/zz-ubuntu-user.conf
+
 WORKDIR /app
 
 COPY docker/php/init-ssh-and-run.sh /usr/local/bin/init-ssh-and-run.sh

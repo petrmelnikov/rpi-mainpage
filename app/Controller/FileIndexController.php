@@ -105,18 +105,22 @@ class FileIndexController
 
     private static function isDirectoryWritableForOperation(string $dir): bool
     {
-        if (getenv('SHELL_OVER_SSH') === '1') {
-            $checkCmd = '[ -d ' . escapeshellarg($dir) . ' ] && [ -w ' . escapeshellarg($dir) . ' ] && echo __WRITABLE__ || true';
-            try {
-                $result = ShellCommandExecutor::execute($checkCmd);
-            } catch (\RuntimeException) {
-                return false;
-            }
-
-            return str_contains($result, '__WRITABLE__');
+        if (!is_dir($dir)) {
+            return false;
         }
 
-        return @is_writable($dir);
+        // Real capability check for the CURRENT PHP process.
+        // Use direct create in target directory (tempnam may fallback to /tmp).
+        $probe = rtrim($dir, '/') . '/.wprobe_' . bin2hex(random_bytes(8));
+        $fh = @fopen($probe, 'wb');
+        if ($fh === false) {
+            return false;
+        }
+
+        @fclose($fh);
+
+        @unlink($probe);
+        return true;
     }
 
     private static function downloadByUrlToDirectory(string $url, string $targetDir): array
