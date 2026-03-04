@@ -13,7 +13,7 @@
         <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
         <link rel="stylesheet" href="/web/css/custom.css">
     </head>
-    <body>
+    <body class="page-shell">
         <div class="container">
             <?php
                 /** @var string $body */
