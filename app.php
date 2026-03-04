@@ -9,6 +9,7 @@ use App\Controller\FileIndexController;
 use App\Controller\SettingsController;
 use App\Controller\SystemController;
 use App\Controller\ToolsController;
+use App\Controller\YouTubePlayerController;
 
 $app = App::getInstance();
 $app->appRoot = __DIR__;
@@ -21,6 +22,7 @@ $router = new Router();
 (new ToolsController())->registerRoutes($router, $app->appRoot);
 (new FileIndexController())->registerRoutes($router, $app->appRoot);
 (new SettingsController())->registerRoutes($router, $app->appRoot);
+(new YouTubePlayerController())->registerRoutes($router, $app->appRoot);
 
 $routeDataDto = $router->parse($_SERVER);
 $handler = $routeDataDto->handler;
