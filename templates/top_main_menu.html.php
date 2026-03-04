@@ -18,5 +18,6 @@
         <a class="btn btn-primary" href="/top">top</a>
         <a class="btn btn-primary" href="/file-index">file index</a>
         <a class="btn btn-primary" href="/tools">tools</a>
+        <a class="btn btn-primary" href="/youtube-player">YouTube Player</a>
     </div>
 </div>
