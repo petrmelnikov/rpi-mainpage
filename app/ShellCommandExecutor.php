@@ -4,9 +4,9 @@ namespace App;
 
 class ShellCommandExecutor
 {
-    public static function execute(string $command): string
+    public static function execute(string $command, bool $forceSsh = false): string
     {
-        $effectiveCommand = self::buildEffectiveCommand($command);
+        $effectiveCommand = self::buildEffectiveCommand($command, $forceSsh);
         $result = shell_exec($effectiveCommand);
 
         if ($result === null) {
@@ -16,10 +16,10 @@ class ShellCommandExecutor
         return $result;
     }
 
-    public static function executeWithSplitByLines(string $command): array
+    public static function executeWithSplitByLines(string $command, bool $forceSsh = false): array
     {
         try {
-            $result = self::execute($command);
+            $result = self::execute($command, $forceSsh);
         } catch (\RuntimeException $e) {
             return [
                 $e->getMessage(),
@@ -28,9 +28,11 @@ class ShellCommandExecutor
         return explode("\n", $result);
     }
 
-    private static function buildEffectiveCommand(string $command): string
+    private static function buildEffectiveCommand(string $command, bool $forceSsh = false): string
     {
-        if (getenv('SHELL_OVER_SSH') !== '1') {
+        $shouldUseSsh = $forceSsh || getenv('SHELL_OVER_SSH') === '1';
+
+        if (!$shouldUseSsh) {
             return $command;
         }
 
