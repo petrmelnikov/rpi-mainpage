@@ -114,8 +114,11 @@ class SystemController
 
     public function top(): array
     {
-        $command = 'top -b -n 1 2>&1 | head -20 2>&1';
-        return ['shellCommandRawContent' => ShellCommandExecutor::executeWithSplitByLines($command)];
+        $command = 'top -b -n 1 2>&1 | head -20';
+
+        // Always prefer host-side execution for /top (via SSH wrapper when available)
+        // so system metrics represent the actual host, not the PHP container.
+        return ['shellCommandRawContent' => ShellCommandExecutor::executeWithSplitByLines($command, true)];
     }
 
     public function updateCode(): array
