@@ -8,13 +8,30 @@ CONFIG_PATH="$SSH_DIR/config"
 mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
+
+ENV_FILE="${SSH_ENV_FILE:-}"
+if [ -z "$ENV_FILE" ]; then
+  if [ -f "/app/.env.ssh" ]; then
+    ENV_FILE="/app/.env.ssh"
+  elif [ -f ".env.ssh" ]; then
+    ENV_FILE=".env.ssh"
+  fi
+fi
+
+if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
 if [ -n "${SSH_PRIVATE_KEY_B64:-}" ]; then
   printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 -d > "$KEY_PATH"
   chmod 600 "$KEY_PATH"
 fi
 
 if [ ! -s "$KEY_PATH" ]; then
-  echo "SSH key is missing. Run scripts/setup-docker-ssh-key.sh first." >&2
+  echo "SSH key is missing. Set SSH_PRIVATE_KEY_B64 or provide .env.ssh (auto-loaded from /app/.env.ssh or ./.env.ssh)." >&2
   exit 1
 fi
 
@@ -57,6 +74,11 @@ if id "$APP_RUN_USER" >/dev/null 2>&1; then
 else
   # Fallback if the runtime user does not exist.
   ssh -F "$CONFIG_PATH" -MNf remote-target || true
+fi
+
+if [ "$#" -eq 0 ]; then
+  echo "SSH initialization completed (no command provided)."
+  exit 0
 fi
 
 exec "$@"
