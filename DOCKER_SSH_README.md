@@ -16,11 +16,18 @@ What the script does:
 Optional variable in `.env.ssh`:
 - `SSH_REMOTE_APP_DIR` — absolute path to this project on remote host (default: `/apps/rpi-mainpage`)
 - `APP_RUN_USER` — PHP-FPM runtime user inside container (default: `ubuntu`, uid `1000`)
+- `APP_RUN_GROUPS` — extra groups added to `APP_RUN_USER` on container startup (default: `www-data`)
 
 This path is used by the **pull** button and composer install commands.
 
 `APP_RUN_USER=ubuntu` helps writes to bind-mounted host directories (uploads, URL downloads, NFO save)
 when those paths are owned by host user with uid `1000`.
+
+When running `docker/php/init-ssh-and-run.sh` manually, it now auto-loads SSH variables
+from `/app/.env.ssh` (inside container) or `./.env.ssh` (current directory).
+
+If media folders are owned by `www-data:www-data` with mode like `drwxrwxr-x`, keep
+`APP_RUN_GROUPS=www-data` so file manager can create/delete entries there.
 
 ## 2) Start
 
