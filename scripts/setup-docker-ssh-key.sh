@@ -17,17 +17,21 @@ fi
 chmod 600 "${KEY_PATH}"
 chmod 644 "${PUB_PATH}"
 
-DEFAULT_HOST="${SSH_REMOTE_HOST:-}"
+DEFAULT_HOST="${SSH_REMOTE_HOST:-host.docker.internal}"
 DEFAULT_PORT="${SSH_REMOTE_PORT:-22}"
 DEFAULT_USER="${SSH_REMOTE_USER:-ubuntu}"
 
-read -r -p "Remote host [${DEFAULT_HOST:-127.0.0.1}]: " INPUT_HOST || true
+read -r -p "Remote host for container [${DEFAULT_HOST}]: " INPUT_HOST || true
 read -r -p "Remote port [${DEFAULT_PORT}]: " INPUT_PORT || true
 read -r -p "Remote user [${DEFAULT_USER}]: " INPUT_USER || true
 
-REMOTE_HOST="${INPUT_HOST:-${DEFAULT_HOST:-127.0.0.1}}"
+REMOTE_HOST="${INPUT_HOST:-${DEFAULT_HOST}}"
 REMOTE_PORT="${INPUT_PORT:-${DEFAULT_PORT}}"
 REMOTE_USER="${INPUT_USER:-${DEFAULT_USER}}"
+
+DEFAULT_PROVISION_HOST="${SSH_PROVISION_HOST:-${REMOTE_HOST}}"
+read -r -p "Host used now for key provisioning [${DEFAULT_PROVISION_HOST}]: " INPUT_PROVISION_HOST || true
+PROVISION_HOST="${INPUT_PROVISION_HOST:-${DEFAULT_PROVISION_HOST}}"
 
 if [ -z "${REMOTE_HOST}" ] || [ -z "${REMOTE_USER}" ]; then
   echo "Remote host and user are required" >&2
@@ -35,16 +39,27 @@ if [ -z "${REMOTE_HOST}" ] || [ -z "${REMOTE_USER}" ]; then
 fi
 
 KEY_B64="$(base64 -w0 "${KEY_PATH}")"
-cat > "${ENV_FILE}" <<EOF
+cat > "${ENV_FILE}" <<EOF_ENV
 SSH_REMOTE_HOST=${REMOTE_HOST}
 SSH_REMOTE_PORT=${REMOTE_PORT}
 SSH_REMOTE_USER=${REMOTE_USER}
 SSH_PRIVATE_KEY_B64=${KEY_B64}
-EOF
+EOF_ENV
+
+# The value in .env.ssh must be reachable from Docker container.
+# Key provisioning may require a different host that is reachable from current shell.
+
+if [ -z "${PROVISION_HOST}" ]; then
+  echo "Provision host is required" >&2
+  exit 1
+fi
 
 PUB_KEY="$(cat "${PUB_PATH}")"
 SSH_OPTS=( -p "${REMOTE_PORT}" -o StrictHostKeyChecking=accept-new )
 
-ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qxF '${PUB_KEY}' ~/.ssh/authorized_keys || echo '${PUB_KEY}' >> ~/.ssh/authorized_keys"
+ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${PROVISION_HOST}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qxF '${PUB_KEY}' ~/.ssh/authorized_keys || echo '${PUB_KEY}' >> ~/.ssh/authorized_keys"
 
-echo "Prepared ${ENV_FILE} and ensured public key is present on ${REMOTE_USER}@${REMOTE_HOST}"
+echo "Prepared ${ENV_FILE} (SSH_REMOTE_HOST=${REMOTE_HOST}) and ensured public key is present on ${REMOTE_USER}@${PROVISION_HOST}"
+if [ "${REMOTE_HOST}" = "host.docker.internal" ]; then
+  echo "Note: app container will connect to host.docker.internal:${REMOTE_PORT}. Ensure sshd listens on a non-loopback interface."
+fi
