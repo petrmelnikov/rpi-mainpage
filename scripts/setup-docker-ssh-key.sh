@@ -29,6 +29,10 @@ REMOTE_HOST="${INPUT_HOST:-${DEFAULT_HOST}}"
 REMOTE_PORT="${INPUT_PORT:-${DEFAULT_PORT}}"
 REMOTE_USER="${INPUT_USER:-${DEFAULT_USER}}"
 
+DEFAULT_PROVISION_HOST="${SSH_PROVISION_HOST:-${REMOTE_HOST}}"
+read -r -p "Host used now for key provisioning [${DEFAULT_PROVISION_HOST}]: " INPUT_PROVISION_HOST || true
+PROVISION_HOST="${INPUT_PROVISION_HOST:-${DEFAULT_PROVISION_HOST}}"
+
 if [ -z "${REMOTE_HOST}" ] || [ -z "${REMOTE_USER}" ]; then
   echo "Remote host and user are required" >&2
   exit 1
@@ -43,10 +47,11 @@ SSH_PRIVATE_KEY_B64=${KEY_B64}
 EOF_ENV
 
 # The value in .env.ssh must be reachable from Docker container.
-# For one-time key provisioning from host machine, use a host-reachable fallback.
-PROVISION_HOST="${SSH_PROVISION_HOST:-${REMOTE_HOST}}"
-if [ "${REMOTE_HOST}" = "host.docker.internal" ] && ! getent hosts "${REMOTE_HOST}" >/dev/null 2>&1; then
-  PROVISION_HOST="127.0.0.1"
+# Key provisioning may require a different host that is reachable from current shell.
+
+if [ -z "${PROVISION_HOST}" ]; then
+  echo "Provision host is required" >&2
+  exit 1
 fi
 
 PUB_KEY="$(cat "${PUB_PATH}")"
@@ -55,3 +60,6 @@ SSH_OPTS=( -p "${REMOTE_PORT}" -o StrictHostKeyChecking=accept-new )
 ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${PROVISION_HOST}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qxF '${PUB_KEY}' ~/.ssh/authorized_keys || echo '${PUB_KEY}' >> ~/.ssh/authorized_keys"
 
 echo "Prepared ${ENV_FILE} (SSH_REMOTE_HOST=${REMOTE_HOST}) and ensured public key is present on ${REMOTE_USER}@${PROVISION_HOST}"
+if [ "${REMOTE_HOST}" = "host.docker.internal" ]; then
+  echo "Note: app container will connect to host.docker.internal:${REMOTE_PORT}. Ensure sshd listens on a non-loopback interface."
+fi
