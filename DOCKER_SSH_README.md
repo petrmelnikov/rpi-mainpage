@@ -15,6 +15,7 @@ What the script does:
 
 Optional variable in `.env.ssh`:
 - `SSH_REMOTE_HOST` — SSH endpoint reachable from the `app` container (default: `host.docker.internal`)
+  - note: `setup-docker-ssh-key.sh` should be run on host; for key provisioning it auto-falls back to `127.0.0.1` if `host.docker.internal` is not resolvable on host
 - `SSH_REMOTE_APP_DIR` — absolute path to this project on remote host (default: `/apps/rpi-mainpage`)
 - `APP_RUN_USER` — PHP-FPM runtime user inside container (default: `ubuntu`, uid `1000`)
 - `APP_RUN_GROUPS` — extra groups added to `APP_RUN_USER` on container startup (default: `www-data`)
