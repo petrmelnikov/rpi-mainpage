@@ -41,6 +41,14 @@ chmod 600 "$CONFIG_PATH"
 # Ensure PHP-FPM worker user can access SSH key/config.
 # By default php-fpm runs as www-data inside php:8.2-fpm.
 APP_RUN_USER="${APP_RUN_USER:-www-data}"
+APP_RUN_GROUPS="${APP_RUN_GROUPS:-www-data}"
+
+if id "$APP_RUN_USER" >/dev/null 2>&1 && [ -n "$APP_RUN_GROUPS" ]; then
+  # Allow the runtime user to write into bind-mounted directories owned by
+  # service accounts (e.g. www-data:www-data with mode 775).
+  usermod -a -G "$APP_RUN_GROUPS" "$APP_RUN_USER" || true
+fi
+
 if id "$APP_RUN_USER" >/dev/null 2>&1; then
   chown -R "$APP_RUN_USER:$APP_RUN_USER" "$SSH_DIR"
 

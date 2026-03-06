@@ -14,6 +14,7 @@ services:
       # Keep app state on host-mounted storage so data survives container rebuilds.
       UPLOAD_BASE_DIR: /media/.rpi-mainpage-data
       APP_RUN_USER: ${APP_RUN_USER:-ubuntu}
+      APP_RUN_GROUPS: ${APP_RUN_GROUPS:-www-data}
       SSH_REMOTE_HOST: ${SSH_REMOTE_HOST:-host.docker.internal}
       SSH_REMOTE_PORT: ${SSH_REMOTE_PORT:-22}
       SSH_REMOTE_USER: ${SSH_REMOTE_USER:-ubuntu}
