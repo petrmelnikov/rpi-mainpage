@@ -17,15 +17,15 @@ fi
 chmod 600 "${KEY_PATH}"
 chmod 644 "${PUB_PATH}"
 
-DEFAULT_HOST="${SSH_REMOTE_HOST:-}"
+DEFAULT_HOST="${SSH_REMOTE_HOST:-host.docker.internal}"
 DEFAULT_PORT="${SSH_REMOTE_PORT:-22}"
 DEFAULT_USER="${SSH_REMOTE_USER:-ubuntu}"
 
-read -r -p "Remote host [${DEFAULT_HOST:-127.0.0.1}]: " INPUT_HOST || true
+read -r -p "Remote host [${DEFAULT_HOST}]: " INPUT_HOST || true
 read -r -p "Remote port [${DEFAULT_PORT}]: " INPUT_PORT || true
 read -r -p "Remote user [${DEFAULT_USER}]: " INPUT_USER || true
 
-REMOTE_HOST="${INPUT_HOST:-${DEFAULT_HOST:-127.0.0.1}}"
+REMOTE_HOST="${INPUT_HOST:-${DEFAULT_HOST}}"
 REMOTE_PORT="${INPUT_PORT:-${DEFAULT_PORT}}"
 REMOTE_USER="${INPUT_USER:-${DEFAULT_USER}}"
 
