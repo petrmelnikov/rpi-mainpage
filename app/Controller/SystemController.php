@@ -114,7 +114,8 @@ class SystemController
 
     public function top(): array
     {
-        $command = 'top -b -n 1 2>&1 | head -20';
+        $command = '(TERM=dumb COLUMNS=512 top -b -n 1 2>&1 || '
+            . 'ps -eo pid,ppid,user,%cpu,%mem,comm,args --sort=-%cpu 2>&1) | head -20';
 
         // Always prefer host-side execution for /top (via SSH wrapper when available)
         // so system metrics represent the actual host, not the PHP container.
