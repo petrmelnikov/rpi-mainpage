@@ -12,4 +12,4 @@ if [ ! -f "$CONFIG_PATH" ]; then
   exit 1
 fi
 
-ssh -F "$CONFIG_PATH" remote-target -- bash -lc "$REMOTE_COMMAND"
+printf '%s\n' "$REMOTE_COMMAND" | ssh -F "$CONFIG_PATH" remote-target -- bash -s
