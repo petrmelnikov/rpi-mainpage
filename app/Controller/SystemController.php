@@ -123,31 +123,17 @@ class SystemController
 
     public function updateCode(): array
     {
-        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
-
         $localAppRoot = $this->appRoot !== '' ? $this->appRoot : getcwd();
-        $remoteAppRoot = getenv('SSH_REMOTE_APP_DIR') ?: '/apps/rpi-mainpage';
-        $targetAppRoot = $isShellOverSsh ? $remoteAppRoot : $localAppRoot;
+        $targetAppRoot = ShellCommandExecutor::resolveTargetAppRoot($localAppRoot);
         $appRootArg = escapeshellarg($targetAppRoot);
-
-        $wrapCommand = static function (string $command) use ($isShellOverSsh): string {
-            // In Docker SSH mode we already connect as SSH_REMOTE_USER (default: ubuntu),
-            // so extra sudo wrapping may fail and break pull/composer commands.
-            if ($isShellOverSsh) {
-                return $command;
-            }
-
-            // Legacy non-SSH mode: keep previous behavior.
-            return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
-        };
 
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
         return ['shellCommandRawContent' => array_merge(
-            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
+            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines(ShellCommandExecutor::wrapForAppShell(
                 $pathPrefix . 'GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git -C ' . $appRootArg . ' pull --ff-only 2>&1'
             ))),
-            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines($wrapCommand(
+            self::sanitizeShellLines(ShellCommandExecutor::executeWithSplitByLines(ShellCommandExecutor::wrapForAppShell(
                 $pathPrefix . 'if command -v composer >/dev/null 2>&1; then composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/local/bin/composer ]; then /usr/local/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; elif [ -x /usr/bin/composer ]; then /usr/bin/composer --working-dir=' . $appRootArg . ' install 2>&1; else if [ -d ' . $appRootArg . '/vendor ]; then echo "composer not found; skipping (vendor/ exists)"; else echo "composer not found; install it (e.g. sudo apt-get install composer)"; fi; fi'
             )))
         )];
@@ -155,20 +141,9 @@ class SystemController
 
     public function rebuildContainers(): array
     {
-        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
-
         $localAppRoot = $this->appRoot !== '' ? $this->appRoot : getcwd();
-        $remoteAppRoot = getenv('SSH_REMOTE_APP_DIR') ?: '/apps/rpi-mainpage';
-        $targetAppRoot = $isShellOverSsh ? $remoteAppRoot : $localAppRoot;
+        $targetAppRoot = ShellCommandExecutor::resolveTargetAppRoot($localAppRoot);
         $appRootArg = escapeshellarg($targetAppRoot);
-
-        $wrapCommand = static function (string $command) use ($isShellOverSsh): string {
-            if ($isShellOverSsh) {
-                return $command;
-            }
-
-            return 'sudo -n -u ubuntu -H bash -lc ' . escapeshellarg($command);
-        };
 
         $pathPrefix = 'export PATH=/usr/local/bin:/usr/bin:/bin:$PATH; ';
 
@@ -188,7 +163,7 @@ class SystemController
             . ' >/dev/null 2>&1 < /dev/null & echo "Rebuild started in background. Log: ' . $logFile . '"';
 
         $lines = self::sanitizeShellLines(
-            ShellCommandExecutor::executeWithSplitByLines($wrapCommand($pathPrefix . $bg))
+            ShellCommandExecutor::executeWithSplitByLines(ShellCommandExecutor::wrapForAppShell($pathPrefix . $bg))
         );
 
         $lines[] = 'Tip: open server shell and run: tail -f ' . $logFile;

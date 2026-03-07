@@ -93,7 +93,7 @@ class FileIndexController
 
     private static function commandExists(string $command): bool
     {
-        if (getenv('SHELL_OVER_SSH') === '1') {
+        if (ShellCommandExecutor::isSshEnabled()) {
             try {
                 $result = ShellCommandExecutor::execute('command -v ' . escapeshellarg($command) . ' 2>/dev/null || true');
             } catch (\RuntimeException) {
@@ -131,7 +131,7 @@ class FileIndexController
     {
         $escapedDir = escapeshellarg($targetDir);
         $escapedUrl = escapeshellarg($url);
-        $isShellOverSsh = getenv('SHELL_OVER_SSH') === '1';
+        $isShellOverSsh = ShellCommandExecutor::isSshEnabled();
 
         $commands = [
             [

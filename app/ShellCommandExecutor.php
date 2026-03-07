@@ -4,6 +4,32 @@ namespace App;
 
 class ShellCommandExecutor
 {
+    private const LEGACY_LOCAL_RUN_USER = 'ubuntu';
+    private const DEFAULT_REMOTE_APP_ROOT = '/apps/rpi-mainpage';
+
+    public static function isSshEnabled(bool $forceSsh = false): bool
+    {
+        return $forceSsh || getenv('SHELL_OVER_SSH') === '1';
+    }
+
+    public static function resolveTargetAppRoot(string $localAppRoot, bool $forceSsh = false): string
+    {
+        if (!self::isSshEnabled($forceSsh)) {
+            return $localAppRoot;
+        }
+
+        return getenv('SSH_REMOTE_APP_DIR') ?: self::DEFAULT_REMOTE_APP_ROOT;
+    }
+
+    public static function wrapForAppShell(string $command, bool $forceSsh = false): string
+    {
+        if (self::isSshEnabled($forceSsh)) {
+            return $command;
+        }
+
+        return 'sudo -n -u ' . self::LEGACY_LOCAL_RUN_USER . ' -H bash -lc ' . escapeshellarg($command);
+    }
+
     public static function execute(string $command, bool $forceSsh = false): string
     {
         $effectiveCommand = self::buildEffectiveCommand($command, $forceSsh);
@@ -38,7 +64,7 @@ class ShellCommandExecutor
 
     private static function buildEffectiveCommand(string $command, bool $forceSsh = false): string
     {
-        $shouldUseSsh = $forceSsh || getenv('SHELL_OVER_SSH') === '1';
+        $shouldUseSsh = self::isSshEnabled($forceSsh);
 
         if (!$shouldUseSsh) {
             return $command;
