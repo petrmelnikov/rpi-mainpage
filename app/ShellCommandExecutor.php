@@ -7,9 +7,17 @@ class ShellCommandExecutor
     public static function execute(string $command, bool $forceSsh = false): string
     {
         $effectiveCommand = self::buildEffectiveCommand($command, $forceSsh);
-        $result = shell_exec($effectiveCommand);
+        $output = [];
+        $exitCode = 0;
+        exec($effectiveCommand, $output, $exitCode);
 
-        if ($result === null) {
+        $result = implode("\n", $output);
+
+        if ($result !== '') {
+            $result .= "\n";
+        }
+
+        if ($exitCode !== 0 && $result === '') {
             throw new \RuntimeException('Command execution failed');
         }
 
