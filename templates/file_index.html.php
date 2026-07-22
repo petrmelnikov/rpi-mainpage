@@ -683,13 +683,13 @@ document.addEventListener('DOMContentLoaded', function() {
         return `
             <div class="seek-zone seek-zone-left" id="seekZoneLeft">
                 <div class="seek-indicator" id="seekIndicatorLeft">
-                    <svg viewBox="0 0 24 24"><path d="M12.5 3C17.15 3 21.08 6.03 22.47 10.22L20.1 11C19.05 7.81 16.04 5.5 12.5 5.5C10.54 5.5 8.77 6.22 7.38 7.38L10 10H3V3L5.6 5.6C7.45 4 9.85 3 12.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
+                    <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
                     <span>10s</span>
                 </div>
             </div>
             <div class="seek-zone seek-zone-right" id="seekZoneRight">
                 <div class="seek-indicator" id="seekIndicatorRight">
-                    <svg viewBox="0 0 24 24"><path d="M11.5 3C6.85 3 2.92 6.03 1.53 10.22L3.9 11C4.95 7.81 7.96 5.5 11.5 5.5C13.46 5.5 15.23 6.22 16.62 7.38L14 10H21V3L18.4 5.6C16.55 4 14.15 3 11.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
+                    <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" transform="scale(-1 1) translate(-24 0)"/></svg>
                     <span>10s</span>
                 </div>
             </div>
