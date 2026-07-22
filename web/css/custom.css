@@ -40,6 +40,11 @@
     --plyr-color-main: #30b6c2;
     position: relative !important;
     z-index: 1;
+    /* Gesture layer: no double-tap zoom, no long-press selection/callout */
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
 }
 .video-modal .plyr__video-wrapper {
     z-index: 0 !important;
@@ -58,7 +63,7 @@
     padding-right: 0;
     text-align: center;
 }
-/* Double-tap seek zones */
+/* Double-tap seek zones: visual layer only, gestures are handled on the container */
 .video-container {
     position: relative;
 }
@@ -66,14 +71,13 @@
     position: absolute;
     top: 0;
     bottom: 80px; /* Above controls */
-    width: 35%;
+    width: 35%; /* must match SIDE_ZONE_RATIO in file_index.html.php */
     z-index: 10 !important; /* Above video (0) but below controls (20) */
-    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    pointer-events: auto;
-    background: rgba(0,0,0,0); /* Transparent background to ensure click capture */
+    pointer-events: none;
+    overflow: hidden;
 }
 .seek-zone-left {
     left: 0;
@@ -126,4 +130,31 @@
 }
 @keyframes ripple {
     to { transform: scale(4); opacity: 0; }
+}
+
+/* 2x badge shown while press-and-hold speed-up is active */
+.hold-speed-indicator {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    z-index: 10;
+    pointer-events: none;
+}
+.hold-speed-indicator.active {
+    display: flex;
+}
+.hold-speed-indicator svg {
+    width: 16px;
+    height: 16px;
+    fill: #fff;
 }

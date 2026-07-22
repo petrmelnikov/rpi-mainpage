@@ -522,7 +522,7 @@ function showDownloadProgress(button) {
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let player = null;
-    let seekZonesInitialized = false;
+    let gesturesInitialized = false;
     let currentVideoPath = null;
     let timeUpdateTimeout = null;
     let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
@@ -530,6 +530,12 @@ document.addEventListener('DOMContentLoaded', function() {
     let holdSpeedRestoreValue = 1;
     let holdSpeedTimeout = null;
     let holdToSpeedActive = false;
+    let holdSpeedIndicatorEl = null;
+    let gesturePointerId = null;
+    let gestureStartX = 0;
+    let gestureStartY = 0;
+    let gestureMoved = false;
+    let suppressNextClick = false;
 
     const videoModalElement = document.getElementById('videoPlayerModal');
     const videoElement = document.getElementById('videoPlayer');
@@ -547,7 +553,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const SEEK_TIME = 10; // seconds
     const SAVE_INTERVAL = 5000; // 5 seconds
     const HOLD_TO_SPEED_RATE = 2;
-    const HOLD_TO_SPEED_DELAY = 200;
+    const HOLD_TO_SPEED_DELAY = 250;
+    const DOUBLE_TAP_DELAY = 300;
+    const SIDE_ZONE_RATIO = 0.35; // must match .seek-zone width in custom.css
+    const MOVE_CANCEL_THRESHOLD = 12; // px of drift before a press stops counting as hold/tap
 
     // Video MIME types mapping
     const mimeTypes = {
@@ -669,8 +678,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Create seek zone HTML
-    function createSeekZonesHTML() {
+    // Create gesture overlay HTML (visual only, pointer-events: none)
+    function createGestureOverlayHTML() {
         return `
             <div class="seek-zone seek-zone-left" id="seekZoneLeft">
                 <div class="seek-indicator" id="seekIndicatorLeft">
@@ -683,6 +692,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <svg viewBox="0 0 24 24"><path d="M11.5 3C6.85 3 2.92 6.03 1.53 10.22L3.9 11C4.95 7.81 7.96 5.5 11.5 5.5C13.46 5.5 15.23 6.22 16.62 7.38L14 10H21V3L18.4 5.6C16.55 4 14.15 3 11.5 3M10 12L8 14H11V22H13V14H16L14 12H10Z"/></svg>
                     <span>10s</span>
                 </div>
+            </div>
+            <div class="hold-speed-indicator" id="holdSpeedIndicator">
+                <span>2x</span>
+                <svg viewBox="0 0 24 24"><path d="M4 5v14l8-7-8-7zm9 0v14l8-7-8-7z"/></svg>
             </div>
         `;
     }
@@ -725,12 +738,18 @@ document.addEventListener('DOMContentLoaded', function() {
         holdSpeedRestoreValue = player.speed || 1;
         player.speed = HOLD_TO_SPEED_RATE;
         holdToSpeedActive = true;
+        if (holdSpeedIndicatorEl) {
+            holdSpeedIndicatorEl.classList.add('active');
+        }
     }
 
     function stopHoldToSpeed() {
         if (!player || !holdToSpeedActive) return;
         player.speed = holdSpeedRestoreValue;
         holdToSpeedActive = false;
+        if (holdSpeedIndicatorEl) {
+            holdSpeedIndicatorEl.classList.remove('active');
+        }
     }
 
     function clearHoldToSpeedTimeout() {
@@ -740,80 +759,146 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function setupHoldToSpeed() {
-        if (!player || !player.elements || !player.elements.container) return;
-
-        const plyrContainer = player.elements.container;
-        const videoWrapper = plyrContainer.querySelector('.plyr__video-wrapper');
-        if (!videoWrapper) return;
-
-        videoWrapper.addEventListener('touchstart', function(e) {
-            if (e.target.closest('.plyr__controls') || e.target.closest('.seek-zone')) return;
-            clearHoldToSpeedTimeout();
-            holdSpeedTimeout = setTimeout(() => {
-                startHoldToSpeed();
-                holdSpeedTimeout = null;
-            }, HOLD_TO_SPEED_DELAY);
-        }, { passive: true });
-
-        const finishHold = function() {
-            clearHoldToSpeedTimeout();
-            stopHoldToSpeed();
-        };
-
-        videoWrapper.addEventListener('touchend', finishHold, { passive: true });
-        videoWrapper.addEventListener('touchcancel', finishHold, { passive: true });
-        videoWrapper.addEventListener('touchmove', function(e) {
-            if (e.touches && e.touches.length > 1) {
-                finishHold();
-            }
-        }, { passive: true });
+    function cancelActiveGesture() {
+        clearHoldToSpeedTimeout();
+        stopHoldToSpeed();
+        gesturePointerId = null;
+        suppressNextClick = false;
     }
 
-    // Setup seek zones logic
-    function setupSeekZones() {
-        const plyrContainer = player && player.elements && player.elements.container 
-            ? player.elements.container 
+    // Unified gesture layer: one pointer-events surface over the whole video.
+    // Press-and-hold (mouse or touch) anywhere -> 2x while held.
+    // Double tap/click on the left/right third -> seek -+10s.
+    // Single tap/click in the middle -> Plyr clickToPlay (untouched).
+    function setupVideoGestures() {
+        const plyrContainer = player && player.elements && player.elements.container
+            ? player.elements.container
             : document.querySelector('.plyr');
-            
-        if (!plyrContainer || seekZonesInitialized) return;
 
-        plyrContainer.insertAdjacentHTML('beforeend', createSeekZonesHTML());
-        seekZonesInitialized = true;
-        
+        if (!plyrContainer || gesturesInitialized) return;
+
+        plyrContainer.insertAdjacentHTML('beforeend', createGestureOverlayHTML());
+        gesturesInitialized = true;
+
         const seekZoneLeft = document.getElementById('seekZoneLeft');
         const seekZoneRight = document.getElementById('seekZoneRight');
         const seekIndicatorLeft = document.getElementById('seekIndicatorLeft');
         const seekIndicatorRight = document.getElementById('seekIndicatorRight');
-        
-        function setupDoubleTap(element, seekSeconds, indicator) {
-            let lastTap = 0;
-            const DOUBLE_TAP_DELAY = 300;
-            
-            function handleTap(e) {
-                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-                const now = Date.now();
-                if (now - lastTap < DOUBLE_TAP_DELAY) {
-                    seekVideo(seekSeconds);
-                    showRipple(element, e);
-                    showSeekIndicator(indicator);
-                    lastTap = 0;
-                } else {
-                    lastTap = now;
+        holdSpeedIndicatorEl = document.getElementById('holdSpeedIndicator');
+
+        let lastTapTime = 0;
+        let lastTapZone = null;
+
+        function isGestureTarget(target) {
+            if (!target || !target.closest) return false;
+            if (target.closest('.plyr__controls') || target.closest('.plyr__control') || target.closest('.plyr__menu')) return false;
+            return true;
+        }
+
+        function getTapZone(clientX) {
+            const rect = plyrContainer.getBoundingClientRect();
+            if (!rect.width) return 'middle';
+            const ratio = (clientX - rect.left) / rect.width;
+            if (ratio < SIDE_ZONE_RATIO) return 'left';
+            if (ratio > 1 - SIDE_ZONE_RATIO) return 'right';
+            return 'middle';
+        }
+
+        plyrContainer.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0) return;
+            if (gesturePointerId !== null) {
+                // Second finger down: this is a multi-touch gesture, not a hold
+                cancelActiveGesture();
+                return;
+            }
+            if (!isGestureTarget(e.target)) return;
+            if (plyrContainer.classList.contains('plyr--settings-active')) return;
+
+            gesturePointerId = e.pointerId;
+            gestureStartX = e.clientX;
+            gestureStartY = e.clientY;
+            gestureMoved = false;
+            suppressNextClick = false;
+
+            clearHoldToSpeedTimeout();
+            holdSpeedTimeout = setTimeout(() => {
+                holdSpeedTimeout = null;
+                if (player && !player.paused) {
+                    startHoldToSpeed();
+                }
+            }, HOLD_TO_SPEED_DELAY);
+        });
+
+        window.addEventListener('pointermove', function (e) {
+            if (e.pointerId !== gesturePointerId || gestureMoved) return;
+            if (Math.abs(e.clientX - gestureStartX) > MOVE_CANCEL_THRESHOLD
+                || Math.abs(e.clientY - gestureStartY) > MOVE_CANCEL_THRESHOLD) {
+                gestureMoved = true;
+                if (!holdToSpeedActive) {
+                    // Drifted before the hold kicked in: treat as drag/scroll, not a gesture
+                    clearHoldToSpeedTimeout();
                 }
             }
-            element.addEventListener('click', handleTap, true);
-            element.addEventListener('touchend', handleTap, true);
-            element.addEventListener('dblclick', (e) => {
+        });
+
+        window.addEventListener('pointerup', function (e) {
+            if (e.pointerId !== gesturePointerId) return;
+            gesturePointerId = null;
+            clearHoldToSpeedTimeout();
+            if (holdToSpeedActive) {
+                stopHoldToSpeed();
+                // The browser still fires a click after the hold; keep it from pausing the video
+                suppressNextClick = true;
+            } else if (gestureMoved) {
+                suppressNextClick = true;
+            }
+        });
+
+        window.addEventListener('pointercancel', function (e) {
+            if (e.pointerId !== gesturePointerId) return;
+            cancelActiveGesture();
+        });
+
+        // Long-press on Android fires contextmenu; keep it from interrupting the hold.
+        // Right-click (button 2) never starts a gesture, so the normal menu still works.
+        plyrContainer.addEventListener('contextmenu', function (e) {
+            if (holdToSpeedActive || holdSpeedTimeout) {
+                e.preventDefault();
+            }
+        });
+
+        plyrContainer.addEventListener('click', function (e) {
+            if (!isGestureTarget(e.target)) return;
+            if (plyrContainer.classList.contains('plyr--settings-active')) return;
+
+            if (suppressNextClick) {
+                suppressNextClick = false;
                 e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-            }, true);
-        }
-        
-        if (seekZoneLeft) setupDoubleTap(seekZoneLeft, -SEEK_TIME, seekIndicatorLeft);
-        if (seekZoneRight) setupDoubleTap(seekZoneRight, SEEK_TIME, seekIndicatorRight);
-        
-        plyrContainer.addEventListener('dblclick', (e) => {
-            if (e.target.closest('.seek-zone')) {
+                return;
+            }
+
+            const zone = getTapZone(e.clientX);
+            if (zone === 'middle') return; // Plyr clickToPlay handles it
+
+            e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+
+            const now = Date.now();
+            if (lastTapZone === zone && now - lastTapTime < DOUBLE_TAP_DELAY) {
+                seekVideo(zone === 'left' ? -SEEK_TIME : SEEK_TIME);
+                const zoneEl = zone === 'left' ? seekZoneLeft : seekZoneRight;
+                const indicator = zone === 'left' ? seekIndicatorLeft : seekIndicatorRight;
+                if (zoneEl) showRipple(zoneEl, e);
+                if (indicator) showSeekIndicator(indicator);
+                lastTapTime = now; // keep the window open so extra taps chain more seeks
+            } else {
+                lastTapTime = now;
+                lastTapZone = zone;
+            }
+        }, true);
+
+        plyrContainer.addEventListener('dblclick', function (e) {
+            if (!isGestureTarget(e.target)) return;
+            if (getTapZone(e.clientX) !== 'middle') {
                 e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
             }
         }, true);
@@ -837,8 +922,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         player.on('ready', function() {
-            setupSeekZones();
-            setupHoldToSpeed();
+            setupVideoGestures();
         });
 
         player.on('loadedmetadata', function() {
@@ -863,8 +947,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Stop video and save final time when modal closes
     videoModalElement.addEventListener('hidden.bs.modal', function() {
         if (player) {
-            clearHoldToSpeedTimeout();
-            stopHoldToSpeed();
+            cancelActiveGesture();
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
