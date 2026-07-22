@@ -321,7 +321,15 @@
                                             </button>
                                         <?php endif; ?>
                                         <?php if ($isPlayableVideo): ?>
-                                            <button type="button" 
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-secondary btn-icon btn-video-info"
+                                                    data-video-path="<?= htmlspecialchars($file['path']) ?>"
+                                                    data-video-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    aria-label="Video info"
+                                                    title="Video info (resolution, codecs)">
+                                                ℹ️
+                                            </button>
+                                            <button type="button"
                                                     class="btn btn-sm btn-outline-success btn-icon btn-play-video"
                                                     data-video-path="<?= htmlspecialchars($file['path']) ?>"
                                                     data-video-name="<?= htmlspecialchars($file['name']) ?>"
@@ -494,6 +502,22 @@ function showDownloadProgress(button) {
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="overrideMediaInfoSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Video Info Modal -->
+<div class="modal fade" id="videoInfoModal" tabindex="-1" aria-labelledby="videoInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="videoInfoModalLabel">Video Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted text-break mb-1" id="videoInfoFileName"></div>
+                <div id="videoInfoBody"></div>
             </div>
         </div>
     </div>
@@ -1217,6 +1241,91 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // --- Video info modal ---
+    const videoInfoModalElement = document.getElementById('videoInfoModal');
+    const videoInfoBodyEl = document.getElementById('videoInfoBody');
+    const videoInfoFileNameEl = document.getElementById('videoInfoFileName');
+
+    let videoInfoModal = null;
+    if (videoInfoModalElement && typeof bootstrap !== 'undefined') {
+        videoInfoModal = new bootstrap.Modal(videoInfoModalElement);
+    }
+
+    function renderVideoInfoSections(sections) {
+        videoInfoBodyEl.innerHTML = '';
+
+        sections.forEach(function(section, sectionIndex) {
+            if (!section || !Array.isArray(section.rows) || !section.rows.length) return;
+
+            const heading = document.createElement('h6');
+            heading.className = 'mb-2' + (sectionIndex > 0 ? ' mt-3' : '');
+            heading.textContent = section.title || '';
+
+            const table = document.createElement('table');
+            table.className = 'table table-sm mb-0';
+            const tbody = document.createElement('tbody');
+
+            section.rows.forEach(function(row) {
+                if (!Array.isArray(row) || row.length < 2) return;
+                const tr = document.createElement('tr');
+                const th = document.createElement('th');
+                th.scope = 'row';
+                th.className = 'text-muted fw-normal';
+                th.style.width = '40%';
+                th.textContent = String(row[0]);
+                const td = document.createElement('td');
+                td.textContent = String(row[1]);
+                tr.appendChild(th);
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            videoInfoBodyEl.appendChild(heading);
+            videoInfoBodyEl.appendChild(table);
+        });
+
+        if (!videoInfoBodyEl.children.length) {
+            videoInfoBodyEl.innerHTML = '<div class="alert alert-warning mb-0">No media information available.</div>';
+        }
+    }
+
+    function showVideoInfoError(message) {
+        const div = document.createElement('div');
+        div.className = 'alert alert-danger mb-0';
+        div.textContent = message;
+        videoInfoBodyEl.innerHTML = '';
+        videoInfoBodyEl.appendChild(div);
+    }
+
+    document.addEventListener('click', async function(e) {
+        const btn = e.target.closest('.btn-video-info');
+        if (!btn || !videoInfoModal) return;
+
+        const path = btn.dataset.videoPath || '';
+        videoInfoFileNameEl.textContent = btn.dataset.videoName || '';
+        videoInfoBodyEl.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-secondary" role="status"><span class="visually-hidden">Loading…</span></div></div>';
+        videoInfoModal.show();
+
+        if (!path) {
+            showVideoInfoError('Missing file path.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/file-index/video-info?path=' + encodeURIComponent(path), {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data || !data.ok) {
+                throw new Error((data && data.error) ? data.error : ('Request failed (' + res.status + ')'));
+            }
+            renderVideoInfoSections(Array.isArray(data.sections) ? data.sections : []);
+        } catch (err) {
+            showVideoInfoError(err && err.message ? err.message : 'Failed to load video info');
+        }
+    });
 
     // --- Chunked upload ---
     const uploadFileInput = document.getElementById('chunkUploadFile');

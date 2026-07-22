@@ -364,6 +364,7 @@ class FileIndexController
         $router->addRoute('POST', '/file-index/unpin', [$this, 'unpin']);
         $router->addRoute('GET', '/file-index/download', [$this, 'downloadDirectory']);
         $router->addRoute('GET', '/file-index/stream', [$this, 'streamVideo']);
+        $router->addRoute('GET', '/file-index/video-info', [$this, 'videoInfo']);
         $router->addRoute('GET', '/file-index/video-progress', [$this, 'getVideoProgress']);
         $router->addRoute('GET', '/file-index/video-progress/list', [$this, 'getVideoProgressList']);
         $router->addRoute('POST', '/file-index/video-progress', [$this, 'saveVideoProgress']);
@@ -1438,6 +1439,291 @@ class FileIndexController
         }
 
         exit;
+    }
+
+    public function videoInfo(): string
+    {
+        $fileIndexManager = new FileIndexManager();
+        $catalogPath = $fileIndexManager->getCatalogPath();
+        $relativePath = (string)($_GET['path'] ?? '');
+
+        try {
+            $segments = PathGuard::toSegments($relativePath);
+        } catch (\InvalidArgumentException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $fullPath = PathGuard::joinCatalog($catalogPath, $segments);
+
+        if (!file_exists($fullPath) || !is_file($fullPath)) {
+            self::jsonResponse(['ok' => false, 'error' => 'File not found'], 404);
+        }
+
+        if (!is_readable($fullPath)) {
+            self::jsonResponse(['ok' => false, 'error' => 'File not readable'], 403);
+        }
+
+        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+        $videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v'];
+        if (!in_array($extension, $videoExtensions, true)) {
+            self::jsonResponse(['ok' => false, 'error' => 'Not a supported video file'], 400);
+        }
+
+        $ffprobe = @shell_exec('command -v ffprobe 2>/dev/null');
+        if (!is_string($ffprobe) || trim($ffprobe) === '') {
+            self::jsonResponse(['ok' => false, 'error' => 'ffprobe is not installed on the server'], 501);
+        }
+
+        $cmd = 'ffprobe -v error -print_format json -show_format -show_streams ' . escapeshellarg($fullPath) . ' 2>&1';
+        $raw = @shell_exec($cmd);
+        $data = is_string($raw) ? json_decode($raw, true) : null;
+
+        if (!is_array($data) || empty($data['streams']) || !is_array($data['streams'])) {
+            $detail = is_string($raw) ? trim(mb_substr($raw, 0, 300)) : '';
+            self::jsonResponse(['ok' => false, 'error' => 'ffprobe failed' . ($detail !== '' ? ': ' . $detail : '')], 500);
+        }
+
+        self::jsonResponse(['ok' => true, 'sections' => self::buildVideoInfoSections($data, $fullPath)]);
+    }
+
+    private static function buildVideoInfoSections(array $probe, string $fullPath): array
+    {
+        $format = is_array($probe['format'] ?? null) ? $probe['format'] : [];
+        $sections = [];
+
+        $generalRows = [];
+        $container = trim((string)($format['format_long_name'] ?? ''));
+        if ($container === '') {
+            $container = trim((string)($format['format_name'] ?? ''));
+        }
+        if ($container !== '') {
+            $generalRows[] = ['Container', $container];
+        }
+        $duration = (float)($format['duration'] ?? 0);
+        if ($duration > 0) {
+            $generalRows[] = ['Duration', self::formatMediaDuration($duration)];
+        }
+        $size = (float)($format['size'] ?? 0);
+        if ($size <= 0) {
+            $size = (float)(@filesize($fullPath) ?: 0);
+        }
+        if ($size > 0) {
+            $generalRows[] = ['Size', self::formatMediaSize($size)];
+        }
+        $bitRate = (float)($format['bit_rate'] ?? 0);
+        if ($bitRate > 0) {
+            $generalRows[] = ['Overall bitrate', self::formatMediaBitrate($bitRate)];
+        }
+        $title = trim((string)($format['tags']['title'] ?? ''));
+        if ($title !== '') {
+            $generalRows[] = ['Title', $title];
+        }
+        $sections[] = ['title' => 'General', 'rows' => $generalRows];
+
+        foreach ($probe['streams'] as $stream) {
+            if (!is_array($stream)) {
+                continue;
+            }
+
+            $type = (string)($stream['codec_type'] ?? 'unknown');
+            $index = (int)($stream['index'] ?? 0);
+            $tags = is_array($stream['tags'] ?? null) ? $stream['tags'] : [];
+            $disposition = is_array($stream['disposition'] ?? null) ? $stream['disposition'] : [];
+            $rows = [];
+
+            $codec = self::describeCodec((string)($stream['codec_name'] ?? ''));
+            $profile = trim((string)($stream['profile'] ?? ''));
+            if ($profile !== '') {
+                $codec .= ' (' . $profile . ')';
+            }
+            if ($codec !== '') {
+                $rows[] = ['Codec', $codec];
+            }
+
+            if ($type === 'video') {
+                $width = (int)($stream['width'] ?? 0);
+                $height = (int)($stream['height'] ?? 0);
+                if ($width > 0 && $height > 0) {
+                    $resolution = $width . 'x' . $height;
+                    $dar = trim((string)($stream['display_aspect_ratio'] ?? ''));
+                    if ($dar !== '' && $dar !== 'N/A') {
+                        $resolution .= ' (' . $dar . ')';
+                    }
+                    $rows[] = ['Resolution', $resolution];
+                }
+
+                $fps = self::parseFrameRate((string)($stream['avg_frame_rate'] ?? ''));
+                if ($fps <= 0) {
+                    $fps = self::parseFrameRate((string)($stream['r_frame_rate'] ?? ''));
+                }
+                if ($fps > 0) {
+                    $rows[] = ['Frame rate', rtrim(rtrim(number_format($fps, 3, '.', ''), '0'), '.') . ' fps'];
+                }
+
+                $streamBitRate = (float)($stream['bit_rate'] ?? 0);
+                if ($streamBitRate <= 0) {
+                    $streamBitRate = (float)($tags['BPS'] ?? $tags['BPS-eng'] ?? 0);
+                }
+                if ($streamBitRate > 0) {
+                    $rows[] = ['Bitrate', self::formatMediaBitrate($streamBitRate)];
+                }
+
+                $pixFmt = trim((string)($stream['pix_fmt'] ?? ''));
+                if ($pixFmt !== '') {
+                    $bitDepth = (int)($stream['bits_per_raw_sample'] ?? 0);
+                    if ($bitDepth <= 0 && preg_match('/p(10|12|14|16)(le|be)?$/', $pixFmt, $m)) {
+                        $bitDepth = (int)$m[1];
+                    }
+                    $rows[] = ['Pixel format', $pixFmt . ($bitDepth > 0 ? ' (' . $bitDepth . '-bit)' : '')];
+                }
+
+                $colorTransfer = trim((string)($stream['color_transfer'] ?? ''));
+                if ($colorTransfer === 'smpte2084') {
+                    $rows[] = ['HDR', 'HDR10 (PQ)'];
+                } elseif ($colorTransfer === 'arib-std-b67') {
+                    $rows[] = ['HDR', 'HLG'];
+                }
+            } elseif ($type === 'audio') {
+                $channels = (int)($stream['channels'] ?? 0);
+                if ($channels > 0) {
+                    $layout = trim((string)($stream['channel_layout'] ?? ''));
+                    $rows[] = ['Channels', $channels . ($layout !== '' ? ' (' . $layout . ')' : '')];
+                }
+
+                $sampleRate = (int)($stream['sample_rate'] ?? 0);
+                if ($sampleRate > 0) {
+                    $rows[] = ['Sample rate', rtrim(rtrim(number_format($sampleRate / 1000, 1, '.', ''), '0'), '.') . ' kHz'];
+                }
+
+                $streamBitRate = (float)($stream['bit_rate'] ?? 0);
+                if ($streamBitRate <= 0) {
+                    $streamBitRate = (float)($tags['BPS'] ?? $tags['BPS-eng'] ?? 0);
+                }
+                if ($streamBitRate > 0) {
+                    $rows[] = ['Bitrate', self::formatMediaBitrate($streamBitRate)];
+                }
+            }
+
+            $language = trim((string)($tags['language'] ?? ''));
+            if ($language !== '' && $language !== 'und') {
+                $rows[] = ['Language', $language];
+            }
+            $streamTitle = trim((string)($tags['title'] ?? ''));
+            if ($streamTitle !== '') {
+                $rows[] = ['Title', $streamTitle];
+            }
+
+            $flags = [];
+            if (!empty($disposition['default'])) {
+                $flags[] = 'default';
+            }
+            if (!empty($disposition['forced'])) {
+                $flags[] = 'forced';
+            }
+            if ($flags) {
+                $rows[] = ['Flags', implode(', ', $flags)];
+            }
+
+            if (!$rows) {
+                continue;
+            }
+
+            $sections[] = [
+                'title' => ucfirst($type) . ' #' . $index,
+                'rows' => $rows,
+            ];
+        }
+
+        return $sections;
+    }
+
+    private static function describeCodec(string $codecName): string
+    {
+        $codecName = strtolower(trim($codecName));
+        if ($codecName === '') {
+            return '';
+        }
+
+        $map = [
+            'h264' => 'H.264 / AVC',
+            'hevc' => 'H.265 / HEVC',
+            'mpeg2video' => 'MPEG-2',
+            'mpeg4' => 'MPEG-4 Part 2',
+            'msmpeg4v3' => 'MS MPEG-4 v3 (DivX)',
+            'vp8' => 'VP8',
+            'vp9' => 'VP9',
+            'av1' => 'AV1',
+            'mjpeg' => 'MJPEG',
+            'aac' => 'AAC',
+            'ac3' => 'AC-3 (Dolby Digital)',
+            'eac3' => 'E-AC-3 (Dolby Digital Plus)',
+            'dts' => 'DTS',
+            'truehd' => 'Dolby TrueHD',
+            'mp3' => 'MP3',
+            'mp2' => 'MP2',
+            'opus' => 'Opus',
+            'vorbis' => 'Vorbis',
+            'flac' => 'FLAC',
+            'pcm_s16le' => 'PCM 16-bit',
+            'subrip' => 'SubRip (SRT)',
+            'ass' => 'ASS',
+            'ssa' => 'SSA',
+            'mov_text' => 'MOV text',
+            'hdmv_pgs_subtitle' => 'PGS',
+            'dvd_subtitle' => 'VobSub',
+            'webvtt' => 'WebVTT',
+        ];
+
+        return $map[$codecName] ?? strtoupper($codecName);
+    }
+
+    private static function parseFrameRate(string $ratio): float
+    {
+        $ratio = trim($ratio);
+        if ($ratio === '' || $ratio === '0/0') {
+            return 0.0;
+        }
+
+        if (str_contains($ratio, '/')) {
+            [$num, $den] = array_pad(explode('/', $ratio, 2), 2, '0');
+            $num = (float)$num;
+            $den = (float)$den;
+            return $den > 0 ? $num / $den : 0.0;
+        }
+
+        return max(0.0, (float)$ratio);
+    }
+
+    private static function formatMediaDuration(float $seconds): string
+    {
+        $seconds = (int)round($seconds);
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+        $secs = $seconds % 60;
+
+        if ($hours > 0) {
+            return sprintf('%d:%02d:%02d', $hours, $minutes, $secs);
+        }
+        return sprintf('%d:%02d', $minutes, $secs);
+    }
+
+    private static function formatMediaSize(float $bytes): string
+    {
+        if ($bytes >= 1024 ** 3) {
+            return number_format($bytes / (1024 ** 3), 2, '.', '') . ' GB';
+        }
+        if ($bytes >= 1024 ** 2) {
+            return number_format($bytes / (1024 ** 2), 1, '.', '') . ' MB';
+        }
+        return number_format($bytes / 1024, 0, '.', '') . ' KB';
+    }
+
+    private static function formatMediaBitrate(float $bitsPerSecond): string
+    {
+        if ($bitsPerSecond >= 1000000) {
+            return number_format($bitsPerSecond / 1000000, 1, '.', '') . ' Mb/s';
+        }
+        return number_format($bitsPerSecond / 1000, 0, '.', '') . ' kb/s';
     }
 
     public function getVideoProgress(): string
