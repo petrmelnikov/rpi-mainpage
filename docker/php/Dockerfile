@@ -4,6 +4,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client git unzip wget aria2 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Composer via official installer (arch-independent phar, works on any platform).
+RUN php -r "copy('https://getcomposer.org/installer', '/tmp/composer-setup.php');" \
+    && php -r "if (hash_file('sha384', '/tmp/composer-setup.php') !== trim(file_get_contents('https://composer.github.io/installer.sig'))) { fwrite(STDERR, 'Composer installer checksum mismatch'.PHP_EOL); exit(1); }" \
+    && php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm /tmp/composer-setup.php
+
 # Match typical host user ownership for bind-mounted paths (e.g. /media/usb_ssd).
 RUN groupadd -g 1000 ubuntu || true \
     && useradd -m -u 1000 -g 1000 -s /bin/bash ubuntu || true \

@@ -2,6 +2,19 @@
 
 This setup runs the app in Docker behind Nginx (port 80) and executes shell commands over one shared SSH connection.
 
+## Scripts
+
+Server (run on the host, in the app directory, e.g. `/apps/rpi-mainpage`):
+
+- `scripts/server-start.sh` — start containers; offers to run SSH key setup first if `.env.ssh` is missing
+- `scripts/server-update.sh` — `git pull --ff-only` + `composer install` (runs composer inside the `app` container when available); hints to restart if docker files changed
+- `scripts/server-restart.sh` — full restart with rebuild (`down` + `up --build -d`)
+- `scripts/server-stop.sh` — stop and remove containers (`down`)
+
+Dev machine (macOS, no containers):
+
+- `scripts/dev-start.sh [port]` — PHP built-in server at `http://127.0.0.1:8080` (routes through `scripts/dev-router.php`)
+
 ## 1) Prepare key and env
 
 ```bash
