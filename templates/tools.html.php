@@ -140,19 +140,3 @@
         <?php endforeach; ?>
     </div>
 <?php endif; ?>
-
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 card-title">Встроенные действия</h2>
-        <p class="card-text text-secondary small">
-            Это прежнее содержимое страницы Tools: две демонстрационные страницы и обновление кода приложения.
-        </p>
-        <div class="d-flex flex-wrap gap-2">
-            <a class="btn btn-secondary" href="/tools/example1">example1</a>
-            <a class="btn btn-secondary" href="/tools/example2">example2</a>
-            <form method="post" action="/update-code">
-                <button class="btn btn-outline-primary" type="submit">git pull</button>
-            </form>
-        </div>
-    </div>
-</div>

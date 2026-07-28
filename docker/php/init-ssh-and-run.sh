@@ -67,10 +67,16 @@ if id "$APP_RUN_USER" >/dev/null 2>&1 && [ -n "$APP_RUN_GROUPS" ]; then
 fi
 
 if [ -n "${UPLOAD_BASE_DIR:-}" ]; then
-  mkdir -p "$UPLOAD_BASE_DIR"
+  TOOLS_DATA_DIR="$UPLOAD_BASE_DIR/hosted-tools"
+  mkdir -p "$TOOLS_DATA_DIR/apps" "$TOOLS_DATA_DIR/manifests"
   if id "$APP_RUN_USER" >/dev/null 2>&1; then
+    # Docker may create the bind-mounted host directory as root before the app
+    # starts. Repair both new and pre-existing hosted-tools directories so the
+    # PHP-FPM worker can publish and delete tools after every container restart.
     chown "$APP_RUN_USER:$APP_RUN_USER" "$UPLOAD_BASE_DIR"
+    chown -R "$APP_RUN_USER:$APP_RUN_USER" "$TOOLS_DATA_DIR"
     chmod 775 "$UPLOAD_BASE_DIR"
+    chmod -R u+rwX,g+rwX,o+rX "$TOOLS_DATA_DIR"
   fi
 fi
 
