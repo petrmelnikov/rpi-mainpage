@@ -66,6 +66,14 @@ if id "$APP_RUN_USER" >/dev/null 2>&1 && [ -n "$APP_RUN_GROUPS" ]; then
   usermod -a -G "$APP_RUN_GROUPS" "$APP_RUN_USER" || true
 fi
 
+if [ -n "${UPLOAD_BASE_DIR:-}" ]; then
+  mkdir -p "$UPLOAD_BASE_DIR"
+  if id "$APP_RUN_USER" >/dev/null 2>&1; then
+    chown "$APP_RUN_USER:$APP_RUN_USER" "$UPLOAD_BASE_DIR"
+    chmod 775 "$UPLOAD_BASE_DIR"
+  fi
+fi
+
 if id "$APP_RUN_USER" >/dev/null 2>&1; then
   chown -R "$APP_RUN_USER:$APP_RUN_USER" "$SSH_DIR"
 

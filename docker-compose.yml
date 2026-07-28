@@ -34,3 +34,4 @@ services:
     volumes:
       - ./:/app:ro
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${HOST_MEDIA_ROOT:-/media}/.rpi-mainpage-data:/app-data:ro

@@ -1,7 +1,8 @@
 FROM php:8.2-fpm
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client git unzip wget aria2 ca-certificates ffmpeg \
+    && apt-get install -y --no-install-recommends openssh-client git unzip wget aria2 ca-certificates ffmpeg libzip-dev \
+    && docker-php-ext-install zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Composer via official installer (arch-independent phar, works on any platform).

@@ -6,6 +6,7 @@
     },
     "require": {
         "twbs/bootstrap": "^5.3",
-        "ext-json": "*"
+        "ext-json": "*",
+        "ext-zip": "*"
     }
 }
