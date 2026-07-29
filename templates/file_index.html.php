@@ -560,6 +560,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let gestureStartY = 0;
     let gestureMoved = false;
     let suppressNextClick = false;
+    let pendingToggleTimeout = null;
+    let pressOutlivedTapWindow = false;
 
     const videoModalElement = document.getElementById('videoPlayerModal');
     const videoElement = document.getElementById('videoPlayer');
@@ -783,8 +785,29 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function clearPendingToggle() {
+        if (pendingToggleTimeout) {
+            clearTimeout(pendingToggleTimeout);
+            pendingToggleTimeout = null;
+        }
+    }
+
+    function togglePlayPause() {
+        if (!player) return;
+        if (typeof player.togglePlay === 'function') {
+            player.togglePlay();
+            return;
+        }
+        if (player.paused) {
+            player.play();
+        } else {
+            player.pause();
+        }
+    }
+
     function cancelActiveGesture() {
         clearHoldToSpeedTimeout();
+        clearPendingToggle();
         stopHoldToSpeed();
         gesturePointerId = null;
         suppressNextClick = false;
@@ -793,7 +816,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Unified gesture layer: one pointer-events surface over the whole video.
     // Press-and-hold (mouse or touch) anywhere -> 2x while held.
     // Double tap/click on the left/right third -> seek -+10s.
-    // Single tap/click in the middle -> Plyr clickToPlay (untouched).
+    // Single tap/click anywhere -> play/pause. In the side zones the toggle waits
+    // out the double-tap window so it never fires on the way to a seek.
     function setupVideoGestures() {
         const plyrContainer = player && player.elements && player.elements.container
             ? player.elements.container
@@ -843,10 +867,18 @@ document.addEventListener('DOMContentLoaded', function() {
             gestureStartY = e.clientY;
             gestureMoved = false;
             suppressNextClick = false;
+            pressOutlivedTapWindow = false;
+
+            // A new press supersedes a toggle still waiting out the double-tap window,
+            // so a second tap (seek) or a hold (2x) never gets a stray play/pause first.
+            clearPendingToggle();
 
             clearHoldToSpeedTimeout();
             holdSpeedTimeout = setTimeout(() => {
                 holdSpeedTimeout = null;
+                // Past this point the press is a hold, never a tap — even when 2x stays
+                // off because the video is paused, releasing must not toggle playback.
+                pressOutlivedTapWindow = true;
                 if (player && !player.paused) {
                     startHoldToSpeed();
                 }
@@ -869,13 +901,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (e.pointerId !== gesturePointerId) return;
             gesturePointerId = null;
             clearHoldToSpeedTimeout();
-            if (holdToSpeedActive) {
-                stopHoldToSpeed();
-                // The browser still fires a click after the hold; keep it from pausing the video
-                suppressNextClick = true;
-            } else if (gestureMoved) {
+            const wasHold = holdToSpeedActive || pressOutlivedTapWindow;
+            stopHoldToSpeed();
+            // The browser still fires a click after a hold or a drag; only a short,
+            // stationary press counts as a tap and is allowed to reach play/pause.
+            if (wasHold || gestureMoved) {
                 suppressNextClick = true;
             }
+            pressOutlivedTapWindow = false;
         });
 
         window.addEventListener('pointercancel', function (e) {
@@ -895,36 +928,50 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!isGestureTarget(e.target)) return;
             if (plyrContainer.classList.contains('plyr--settings-active')) return;
 
+            // We own play/pause across the whole surface (Plyr's clickToPlay is off),
+            // so every click below is consumed here.
+            e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+
             if (suppressNextClick) {
                 suppressNextClick = false;
-                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
                 return;
             }
 
             const zone = getTapZone(e.clientX);
-            if (zone === 'middle') return; // Plyr clickToPlay handles it
 
-            e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+            // Middle has no double-tap action, so toggling right away keeps it snappy.
+            if (zone === 'middle') {
+                lastTapZone = null;
+                togglePlayPause();
+                return;
+            }
 
             const now = Date.now();
             if (lastTapZone === zone && now - lastTapTime < DOUBLE_TAP_DELAY) {
+                clearPendingToggle();
                 seekVideo(zone === 'left' ? -SEEK_TIME : SEEK_TIME);
                 const zoneEl = zone === 'left' ? seekZoneLeft : seekZoneRight;
                 const indicator = zone === 'left' ? seekIndicatorLeft : seekIndicatorRight;
                 if (zoneEl) showRipple(zoneEl, e);
                 if (indicator) showSeekIndicator(indicator);
                 lastTapTime = now; // keep the window open so extra taps chain more seeks
-            } else {
-                lastTapTime = now;
-                lastTapZone = zone;
+                return;
             }
+
+            lastTapTime = now;
+            lastTapZone = zone;
+            // Lone tap in a seek zone: toggle, but only once the double-tap window
+            // closes without a second tap turning this into a seek.
+            clearPendingToggle();
+            pendingToggleTimeout = setTimeout(function () {
+                pendingToggleTimeout = null;
+                togglePlayPause();
+            }, DOUBLE_TAP_DELAY);
         }, true);
 
         plyrContainer.addEventListener('dblclick', function (e) {
             if (!isGestureTarget(e.target)) return;
-            if (getTapZone(e.clientX) !== 'middle') {
-                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-            }
+            e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
         }, true);
     }
     
@@ -941,7 +988,7 @@ document.addEventListener('DOMContentLoaded', function() {
             speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
             keyboard: { focused: true, global: true },
             seekTime: SEEK_TIME,
-            clickToPlay: true,
+            clickToPlay: false, // handled by the gesture layer so taps can't double-toggle
             disableContextMenu: false
         });
         
