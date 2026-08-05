@@ -3,6 +3,16 @@
     min-height: 100vh;
 }
 
+.console-box-top {
+    min-height: 30rem;
+    overflow-x: auto;
+}
+
+.console-box-top .console-pre {
+    white-space: pre;
+    word-break: normal;
+}
+
 :root {
     --bs-primary: #30b6c2;
     --bs-primary-rgb: 48, 182, 194;

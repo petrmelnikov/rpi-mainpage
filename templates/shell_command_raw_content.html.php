@@ -3,6 +3,7 @@
         <?php
         $requestPath = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
         $isUpdateOpsPage = in_array($requestPath, ['/update-code', '/rebuild-containers'], true);
+        $isTopPage = $requestPath === '/top';
         ?>
 
         <?php if ($isUpdateOpsPage): ?>
@@ -14,6 +15,16 @@
                 <form method="post" action="/rebuild-containers" class="m-0" onsubmit="return confirm('Rebuild and restart Docker containers now?');">
                     <button type="submit" class="btn btn-danger">♻️ Rebuild containers</button>
                 </form>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($isTopPage): ?>
+            <div class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+                <div class="btn-group" role="group" aria-label="Top display mode">
+                    <a class="btn btn-outline-primary" id="top-static-mode" href="/top">Static</a>
+                    <a class="btn btn-outline-primary" id="top-live-mode" href="/top?mode=live">Live</a>
+                </div>
+                <span class="badge text-bg-secondary" id="top-live-status" role="status" aria-live="polite">Static snapshot</span>
             </div>
         <?php endif; ?>
 
@@ -132,8 +143,57 @@
             </style>
         <?php endif; ?>
 
-        <div class="console-box">
-            <pre class="console-pre"><?php echo $html; ?></pre>
+        <div class="console-box<?php echo $isTopPage ? ' console-box-top' : ''; ?>">
+            <pre class="console-pre"<?php echo $isTopPage ? ' id="top-output" aria-live="off"' : ''; ?>><?php echo $html; ?></pre>
         </div>
+
+        <?php if ($isTopPage): ?>
+            <script>
+                (function () {
+                    const params = new URLSearchParams(window.location.search);
+                    const liveMode = params.get('mode') === 'live';
+                    const staticButton = document.getElementById('top-static-mode');
+                    const liveButton = document.getElementById('top-live-mode');
+                    const status = document.getElementById('top-live-status');
+                    const output = document.getElementById('top-output');
+
+                    staticButton.classList.toggle('active', !liveMode);
+                    liveButton.classList.toggle('active', liveMode);
+
+                    if (!liveMode || !window.EventSource) {
+                        if (liveMode && !window.EventSource) {
+                            status.className = 'badge text-bg-danger';
+                            status.textContent = 'Live mode is not supported by this browser';
+                        }
+                        return;
+                    }
+
+                    status.className = 'badge text-bg-warning';
+                    status.textContent = 'Connecting…';
+
+                    const source = new EventSource('/top/live');
+                    source.addEventListener('snapshot', function (event) {
+                        try {
+                            const snapshot = JSON.parse(event.data);
+                            output.textContent = snapshot.output || '';
+                            status.className = 'badge text-bg-success';
+                            status.textContent = 'Live · updated ' + new Date(snapshot.timestamp).toLocaleTimeString();
+                        } catch (error) {
+                            status.className = 'badge text-bg-danger';
+                            status.textContent = 'Invalid live response';
+                        }
+                    });
+
+                    source.onerror = function () {
+                        status.className = 'badge text-bg-warning';
+                        status.textContent = 'Reconnecting…';
+                    };
+
+                    window.addEventListener('pagehide', function () {
+                        source.close();
+                    }, {once: true});
+                }());
+            </script>
+        <?php endif; ?>
     </div>
 </div>

@@ -7,6 +7,8 @@ use App\ShellCommandExecutor;
 
 class SystemController
 {
+    private const TOP_REFRESH_SECONDS = 2;
+
     private string $appRoot = '';
 
     private static function sanitizeShellLines(array $lines): array
@@ -29,6 +31,7 @@ class SystemController
 
         $router->addRoute('GET', '', [$this, 'index'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('GET', '/top', [$this, 'top'], $appRoot . '/templates/shell_command_raw_content.html.php');
+        $router->addRoute('GET', '/top/live', [$this, 'topLive']);
         $router->addRoute('GET', '/update-code', [$this, 'updateCode'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('POST', '/update-code', [$this, 'updateCode'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('GET', '/rebuild-containers', [$this, 'rebuildContainers'], $appRoot . '/templates/shell_command_raw_content.html.php');
@@ -114,12 +117,66 @@ class SystemController
 
     public function top(): array
     {
+        // Always prefer host-side execution for /top (via SSH wrapper when available)
+        // so system metrics represent the actual host, not the PHP container.
+        return ['shellCommandRawContent' => $this->getTopSnapshot()];
+    }
+
+    public function topLive(): string
+    {
+        ignore_user_abort(false);
+        set_time_limit(0);
+
+        header('Content-Type: text/event-stream; charset=utf-8');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('X-Accel-Buffering: no');
+        header('Connection: keep-alive');
+
+        // Release every PHP output buffer so each event reaches nginx/browser
+        // immediately instead of being held until the request ends.
+        while (ob_get_level() > 0) {
+            ob_end_flush();
+        }
+
+        echo "retry: 3000\n";
+        echo ": top live stream\n\n";
+        flush();
+
+        $sequence = 0;
+        while (!connection_aborted()) {
+            $lines = $this->getTopSnapshot();
+            $output = rtrim(implode("\n", $lines), "\n");
+            $payload = json_encode([
+                'output' => $output,
+                'sequence' => ++$sequence,
+                'timestamp' => date(DATE_ATOM),
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+            if ($payload === false) {
+                $payload = '{"output":"Unable to encode top output"}';
+            }
+
+            echo 'id: ' . $sequence . "\n";
+            echo "event: snapshot\n";
+            echo 'data: ' . $payload . "\n\n";
+            flush();
+
+            if (connection_aborted()) {
+                break;
+            }
+
+            sleep(self::TOP_REFRESH_SECONDS);
+        }
+
+        exit;
+    }
+
+    private function getTopSnapshot(): array
+    {
         $command = '(TERM=dumb COLUMNS=512 top -b -n 1 2>&1 || '
             . 'ps -eo pid,ppid,user,%cpu,%mem,comm,args --sort=-%cpu 2>&1) | head -20';
 
-        // Always prefer host-side execution for /top (via SSH wrapper when available)
-        // so system metrics represent the actual host, not the PHP container.
-        return ['shellCommandRawContent' => ShellCommandExecutor::executeWithSplitByLines($command, true)];
+        return ShellCommandExecutor::executeWithSplitByLines($command, true);
     }
 
     public function updateCode(): array
