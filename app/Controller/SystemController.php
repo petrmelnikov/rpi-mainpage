@@ -30,6 +30,7 @@ class SystemController
         $this->appRoot = $appRoot;
 
         $router->addRoute('GET', '', [$this, 'index'], $appRoot . '/templates/shell_command_raw_content.html.php');
+        $router->addRoute('GET', '/system-info', [$this, 'systemInfo']);
         $router->addRoute('GET', '/top', [$this, 'top'], $appRoot . '/templates/shell_command_raw_content.html.php');
         $router->addRoute('GET', '/top/live', [$this, 'topLive']);
         $router->addRoute('GET', '/update-code', [$this, 'updateCode'], $appRoot . '/templates/shell_command_raw_content.html.php');
@@ -39,6 +40,23 @@ class SystemController
     }
 
     public function index(): array
+    {
+        return ['shellCommandRawContent' => ['Loading system information…']];
+    }
+
+    public function systemInfo(): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+
+        echo json_encode([
+            'ok' => true,
+            'lines' => $this->getSystemInfoLines(),
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    private function getSystemInfoLines(): array
     {
         $stripAnsi = static function (string $line): string {
             return (string)preg_replace('/\x1b\[[0-9;]*m/', '', $line);
@@ -112,7 +130,7 @@ class SystemController
             }
         }
 
-        return ['shellCommandRawContent' => $allLines];
+        return $allLines;
     }
 
     public function top(): array

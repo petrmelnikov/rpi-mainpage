@@ -3,6 +3,7 @@
         <?php
         $requestPath = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
         $isUpdateOpsPage = in_array($requestPath, ['/update-code', '/rebuild-containers'], true);
+        $isIndexPage = $requestPath === '/';
         $isTopPage = $requestPath === '/top';
         ?>
 
@@ -143,9 +144,63 @@
             </style>
         <?php endif; ?>
 
+        <?php if ($isIndexPage): ?>
+            <div class="mb-2 d-flex align-items-center gap-2">
+                <span class="badge text-bg-warning" id="system-info-status" role="status" aria-live="polite">Loading…</span>
+                <button class="btn btn-sm btn-outline-secondary" id="system-info-retry" type="button" disabled>Refresh</button>
+            </div>
+        <?php endif; ?>
+
         <div class="console-box<?php echo $isTopPage ? ' console-box-top' : ''; ?>">
-            <pre class="console-pre"<?php echo $isTopPage ? ' id="top-output" aria-live="off"' : ''; ?>><?php echo $html; ?></pre>
+            <pre class="console-pre"<?php
+                if ($isTopPage) {
+                    echo ' id="top-output" aria-live="off"';
+                } elseif ($isIndexPage) {
+                    echo ' id="system-info-output" aria-live="polite"';
+                }
+            ?>><?php echo $html; ?></pre>
         </div>
+
+        <?php if ($isIndexPage): ?>
+            <script>
+                (function () {
+                    const output = document.getElementById('system-info-output');
+                    const status = document.getElementById('system-info-status');
+                    const retry = document.getElementById('system-info-retry');
+
+                    async function loadSystemInfo() {
+                        retry.disabled = true;
+                        status.className = 'badge text-bg-warning';
+                        status.textContent = 'Loading…';
+
+                        try {
+                            const response = await fetch('/system-info', {
+                                cache: 'no-store',
+                                headers: {'Accept': 'application/json'},
+                            });
+                            const payload = await response.json();
+
+                            if (!response.ok || !payload.ok || !Array.isArray(payload.lines)) {
+                                throw new Error(payload.error || 'Invalid server response');
+                            }
+
+                            output.textContent = payload.lines.join('\n');
+                            status.className = 'badge text-bg-success';
+                            status.textContent = 'Updated ' + new Date().toLocaleTimeString();
+                        } catch (error) {
+                            output.textContent = 'Unable to load system information.\n' + error.message;
+                            status.className = 'badge text-bg-danger';
+                            status.textContent = 'Load failed';
+                        } finally {
+                            retry.disabled = false;
+                        }
+                    }
+
+                    retry.addEventListener('click', loadSystemInfo);
+                    loadSystemInfo();
+                }());
+            </script>
+        <?php endif; ?>
 
         <?php if ($isTopPage): ?>
             <script>
