@@ -13,6 +13,53 @@ class FileIndexController
 {
     private string $appRoot = '';
 
+    private static function fileEntry(\SplFileInfo $file, string $relativePath): array
+    {
+        return [
+            'name' => $file->getFilename(),
+            'path' => $relativePath,
+            'fullPath' => $file->getPathname(),
+            'isDir' => $file->isDir(),
+            'isWritable' => @is_writable($file->getPathname()),
+            'size' => $file->isFile() ? $file->getSize() : 0,
+            'modified' => $file->getMTime(),
+            'isNavigable' => $file->isDir() && $file->isReadable(),
+        ];
+    }
+
+    private static function filenameContains(string $filename, string $query): bool
+    {
+        if (function_exists('mb_stripos')) {
+            return mb_stripos($filename, $query, 0, 'UTF-8') !== false;
+        }
+
+        return stripos($filename, $query) !== false;
+    }
+
+    private static function sortFileEntries(array &$files, string $sortBy, string $sortOrder): void
+    {
+        $direction = $sortOrder === 'desc' ? -1 : 1;
+
+        usort($files, static function (array $a, array $b) use ($sortBy, $direction): int {
+            // Keep directories together at the top, like a conventional file manager.
+            if ($a['isDir'] !== $b['isDir']) {
+                return $a['isDir'] ? -1 : 1;
+            }
+
+            if ($sortBy === 'date') {
+                $comparison = $a['modified'] <=> $b['modified'];
+            } else {
+                $comparison = strcasecmp($a['name'], $b['name']);
+            }
+
+            if ($comparison === 0) {
+                $comparison = strcasecmp($a['path'], $b['path']);
+            }
+
+            return $comparison * $direction;
+        });
+    }
+
     private static function buildRedirectUrl(string $returnPath): string
     {
         $redirectUrl = '/file-index';
@@ -378,6 +425,17 @@ class FileIndexController
         $fileIndexManager = new FileIndexManager();
         $catalogPath = $fileIndexManager->getCatalogPath();
 
+        $searchQuery = trim((string)($_GET['q'] ?? ''));
+        $sortBy = (string)($_GET['sort'] ?? 'name');
+        if (!in_array($sortBy, ['name', 'date'], true)) {
+            $sortBy = 'name';
+        }
+        $sortOrder = strtolower((string)($_GET['order'] ?? 'asc'));
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'asc';
+        }
+        $isSearchActive = $searchQuery !== '';
+
         $currentPath = (string)($_GET['path'] ?? '');
         $currentPath = trim($currentPath, '/');
 
@@ -408,6 +466,35 @@ class FileIndexController
             try {
                 if (!is_readable($currentFullPath)) {
                     $errors[] = 'Directory is not readable: ' . $currentFullPath;
+                } elseif ($isSearchActive) {
+                    $iterator = new \RecursiveIteratorIterator(
+                        new \RecursiveDirectoryIterator(
+                            $currentFullPath,
+                            \FilesystemIterator::SKIP_DOTS
+                        ),
+                        \RecursiveIteratorIterator::LEAVES_ONLY,
+                        \RecursiveIteratorIterator::CATCH_GET_CHILD
+                    );
+
+                    foreach ($iterator as $file) {
+                        try {
+                            if (!$file->isFile() || !self::filenameContains($file->getFilename(), $searchQuery)) {
+                                continue;
+                            }
+
+                            $pathFromSearchRoot = substr($file->getPathname(), strlen(rtrim($currentFullPath, '/')) + 1);
+                            if ($pathFromSearchRoot === false || $pathFromSearchRoot === '') {
+                                continue;
+                            }
+
+                            $relativePath = $currentPath !== ''
+                                ? $currentPath . '/' . $pathFromSearchRoot
+                                : $pathFromSearchRoot;
+                            $files[] = self::fileEntry($file, $relativePath);
+                        } catch (\Exception) {
+                            continue;
+                        }
+                    }
                 } else {
                     $iterator = new \DirectoryIterator($currentFullPath);
 
@@ -416,27 +503,14 @@ class FileIndexController
 
                         try {
                             $relativePath = $currentPath ? $currentPath . '/' . $file->getFilename() : $file->getFilename();
-                            $files[] = [
-                                'name' => $file->getFilename(),
-                                'path' => $relativePath,
-                                'fullPath' => $file->getPathname(),
-                                'isDir' => $file->isDir(),
-                                'isWritable' => @is_writable($file->getPathname()),
-                                'size' => $file->isFile() ? $file->getSize() : 0,
-                                'modified' => $file->getMTime(),
-                                'isNavigable' => $file->isDir() && $file->isReadable()
-                            ];
+                            $files[] = self::fileEntry($file, $relativePath);
                         } catch (\Exception $e) {
                             continue;
                         }
                     }
-
-                    usort($files, function($a, $b) {
-                        if ($a['isDir'] && !$b['isDir']) return -1;
-                        if (!$a['isDir'] && $b['isDir']) return 1;
-                        return strcasecmp($a['name'], $b['name']);
-                    });
                 }
+
+                self::sortFileEntries($files, $sortBy, $sortOrder);
             } catch (\Exception $e) {
                 $errors[] = 'Error reading directory: ' . $e->getMessage();
             }
@@ -453,6 +527,10 @@ class FileIndexController
             'breadcrumbs' => $breadcrumbs,
             'files' => $files,
             'errors' => $errors,
+            'searchQuery' => $searchQuery,
+            'isSearchActive' => $isSearchActive,
+            'sortBy' => $sortBy,
+            'sortOrder' => $sortOrder,
             'totalFiles' => count(array_filter($files, fn($f) => !$f['isDir'])),
             'totalDirs' => count(array_filter($files, fn($f) => $f['isDir'])),
             'pinnedDirectories' => $pinnedDirectories,

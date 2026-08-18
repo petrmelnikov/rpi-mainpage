@@ -5,6 +5,8 @@ The File Index feature provides a web-based file browser that displays files and
 
 ## Features
 - **Directory-by-directory navigation** like a traditional file manager
+- **Recursive filename search** from the current directory through all readable subdirectories
+- **Sorting by name or modified date** in ascending or descending order
 - **Breadcrumb navigation** with clickable path segments
 - **File type detection** with appropriate icons and badges
 - **File size formatting** in human-readable units (B, KB, MB, GB)
@@ -51,6 +53,8 @@ Settings are stored in `config/file_index.json`:
 - **Breadcrumb navigation**: Click on any path segment to jump to that directory
 - **Parent directory**: Use the "⬆️ Parent Directory" button to go up one level
 - **Current directory info**: View directory and file counts with badges
+- **Search**: Enter part of a filename to search the current directory and all of its subdirectories
+- **Sorting**: Select name or modified date and choose ascending or descending order
 - **Download files**: Click the "💾 Download" button next to any file for direct download
 - **Delete files**: Click "🗑 Delete" next to a file, confirm in the modal dialog
 - **Download directories**: Click the "📦 Archive" button next to any directory for compressed download

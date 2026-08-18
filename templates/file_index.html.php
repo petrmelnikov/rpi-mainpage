@@ -1,3 +1,17 @@
+<?php
+$buildFileIndexUrl = static function (string $path = '', array $overrides = []) use ($searchQuery, $sortBy, $sortOrder): string {
+    $params = [
+        'path' => $path !== '' ? $path : null,
+        'q' => $searchQuery !== '' ? $searchQuery : null,
+        'sort' => $sortBy,
+        'order' => $sortOrder,
+    ];
+    $params = array_merge($params, $overrides);
+    $params = array_filter($params, static fn ($value): bool => $value !== null && $value !== '');
+
+    return '/file-index' . ($params ? '?' . http_build_query($params) : '');
+};
+?>
 <div class="row">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -8,7 +22,7 @@
                    onclick="showDownloadProgress(this)">
                     📦 Download Current Directory
                 </a>
-                <a href="/file-index<?= !empty($currentPath) ? '?path=' . urlencode($currentPath) : '' ?>" 
+                <a href="<?= htmlspecialchars($buildFileIndexUrl($currentPath ?? '')) ?>"
                    class="btn btn-outline-primary btn-sm">
                     🔄 Refresh
                 </a>
@@ -25,7 +39,7 @@
                         </li>
                     <?php else: ?>
                         <li class="breadcrumb-item">
-                            <a href="/file-index<?= !empty($crumb['path']) ? '?path=' . urlencode($crumb['path']) : '' ?>">
+                            <a href="<?= htmlspecialchars($buildFileIndexUrl($crumb['path'])) ?>">
                                 <?= htmlspecialchars($crumb['name']) ?>
                             </a>
                         </li>
@@ -42,7 +56,7 @@
                 array_pop($pathParts);
                 $parentPath = implode('/', $pathParts);
                 ?>
-                <a href="/file-index<?= !empty($parentPath) ? '?path=' . urlencode($parentPath) : '' ?>" 
+                <a href="<?= htmlspecialchars($buildFileIndexUrl($parentPath)) ?>"
                    class="btn btn-outline-secondary btn-sm">
                     ⬆️ Parent Directory
                 </a>
@@ -52,6 +66,52 @@
         <p class="text-muted">
             Current Path: <code><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
         </p>
+
+        <form action="/file-index" method="GET" class="card card-body mb-3">
+            <?php if (!empty($currentPath)): ?>
+                <input type="hidden" name="path" value="<?= htmlspecialchars($currentPath) ?>">
+            <?php endif; ?>
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-lg-6">
+                    <label for="fileSearchQuery" class="form-label mb-1">Search files by name</label>
+                    <input type="search"
+                           class="form-control"
+                           id="fileSearchQuery"
+                           name="q"
+                           value="<?= htmlspecialchars($searchQuery) ?>"
+                           placeholder="Search in this directory and subdirectories"
+                           autocomplete="off">
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label for="fileSortBy" class="form-label mb-1">Sort by</label>
+                    <select class="form-select" id="fileSortBy" name="sort">
+                        <option value="name" <?= $sortBy === 'name' ? 'selected' : '' ?>>Name</option>
+                        <option value="date" <?= $sortBy === 'date' ? 'selected' : '' ?>>Modified date</option>
+                    </select>
+                </div>
+                <div class="col-6 col-lg-2">
+                    <label for="fileSortOrder" class="form-label mb-1">Order</label>
+                    <select class="form-select" id="fileSortOrder" name="order">
+                        <option value="asc" <?= $sortOrder === 'asc' ? 'selected' : '' ?>>Ascending</option>
+                        <option value="desc" <?= $sortOrder === 'desc' ? 'selected' : '' ?>>Descending</option>
+                    </select>
+                </div>
+                <div class="col-12 col-lg-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary flex-grow-1">🔎 Apply</button>
+                    <?php if ($isSearchActive): ?>
+                        <a href="<?= htmlspecialchars($buildFileIndexUrl($currentPath ?? '', ['q' => null])) ?>"
+                           class="btn btn-outline-secondary"
+                           aria-label="Clear search"
+                           title="Clear search">✕</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php if ($isSearchActive): ?>
+                <div class="form-text mt-2">
+                    Searching recursively from the current directory for <strong><?= htmlspecialchars($searchQuery) ?></strong>.
+                </div>
+            <?php endif; ?>
+        </form>
 
         <div class="card mb-3">
             <div class="card-body">
@@ -128,7 +188,7 @@
                     <div class="d-flex flex-wrap gap-2">
                         <?php foreach ($pinnedDirectories as $pinnedDir): ?>
                             <div class="btn-group" role="group">
-                                <a href="/file-index?path=<?= urlencode($pinnedDir['path']) ?>" 
+                                <a href="<?= htmlspecialchars($buildFileIndexUrl($pinnedDir['path'], ['q' => null])) ?>"
                                    class="btn btn-outline-warning btn-sm">
                                     📁 <?= htmlspecialchars($pinnedDir['name']) ?>
                                 </a>
@@ -159,7 +219,9 @@
         
         <?php if (!empty($files)): ?>
             <div class="mb-3">
-                <span class="badge bg-primary"><?= $totalDirs ?> directories</span>
+                <?php if (!$isSearchActive): ?>
+                    <span class="badge bg-primary"><?= $totalDirs ?> directories</span>
+                <?php endif; ?>
                 <span class="badge bg-secondary"><?= $totalFiles ?> files</span>
             </div>
             
@@ -206,7 +268,7 @@
                                 <td>
                                     <span class="fw-medium">
                                         <?php if ($file['isDir'] && $file['isNavigable']): ?>
-                                            <a href="/file-index?path=<?= urlencode($file['path']) ?>" 
+                                            <a href="<?= htmlspecialchars($buildFileIndexUrl($file['path'], ['q' => null])) ?>"
                                                class="text-decoration-none">
                                                 <?= htmlspecialchars($file['name']) ?>
                                             </a>
@@ -214,6 +276,13 @@
                                             <?= htmlspecialchars($file['name']) ?>
                                         <?php endif; ?>
                                     </span>
+                                    <?php if ($isSearchActive): ?>
+                                        <?php
+                                        $resultDirectory = dirname($file['path']);
+                                        $resultDirectory = $resultDirectory === '.' ? 'Root' : $resultDirectory;
+                                        ?>
+                                        <div class="small text-muted text-break">📂 <?= htmlspecialchars($resultDirectory) ?></div>
+                                    <?php endif; ?>
                                     <?php if (!$file['isDir']): ?>
                                         <?php
                                         $nameExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
@@ -364,7 +433,11 @@
             </div>
         <?php else: ?>
             <div class="alert alert-info">
-                No files found in the catalog directory.
+                <?php if ($isSearchActive): ?>
+                    No files matching <strong><?= htmlspecialchars($searchQuery) ?></strong> were found in this directory or its subdirectories.
+                <?php else: ?>
+                    No files found in the catalog directory.
+                <?php endif; ?>
             </div>
         <?php endif; ?>
     </div>
