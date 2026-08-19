@@ -11,6 +11,8 @@ $buildFileIndexUrl = static function (string $path = '', array $overrides = []) 
 
     return '/file-index' . ($params ? '?' . http_build_query($params) : '');
 };
+$nextNameSortOrder = $sortBy === 'name' && $sortOrder === 'asc' ? 'desc' : 'asc';
+$nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc';
 ?>
 <div class="row">
     <div class="col-12">
@@ -72,7 +74,7 @@ $buildFileIndexUrl = static function (string $path = '', array $overrides = []) 
                 <input type="hidden" name="path" value="<?= htmlspecialchars($currentPath) ?>">
             <?php endif; ?>
             <div class="row g-2 align-items-end">
-                <div class="col-12 col-lg-6">
+                <div class="col-12 col-lg-9">
                     <label for="fileSearchQuery" class="form-label mb-1">Search files by name</label>
                     <input type="search"
                            class="form-control"
@@ -82,22 +84,10 @@ $buildFileIndexUrl = static function (string $path = '', array $overrides = []) 
                            placeholder="Search in this directory and subdirectories"
                            autocomplete="off">
                 </div>
-                <div class="col-6 col-lg-2">
-                    <label for="fileSortBy" class="form-label mb-1">Sort by</label>
-                    <select class="form-select" id="fileSortBy" name="sort">
-                        <option value="name" <?= $sortBy === 'name' ? 'selected' : '' ?>>Name</option>
-                        <option value="date" <?= $sortBy === 'date' ? 'selected' : '' ?>>Modified date</option>
-                    </select>
-                </div>
-                <div class="col-6 col-lg-2">
-                    <label for="fileSortOrder" class="form-label mb-1">Order</label>
-                    <select class="form-select" id="fileSortOrder" name="order">
-                        <option value="asc" <?= $sortOrder === 'asc' ? 'selected' : '' ?>>Ascending</option>
-                        <option value="desc" <?= $sortOrder === 'desc' ? 'selected' : '' ?>>Descending</option>
-                    </select>
-                </div>
-                <div class="col-12 col-lg-2 d-flex gap-2">
-                    <button type="submit" class="btn btn-primary flex-grow-1">🔎 Apply</button>
+                <input type="hidden" name="sort" value="<?= htmlspecialchars($sortBy) ?>">
+                <input type="hidden" name="order" value="<?= htmlspecialchars($sortOrder) ?>">
+                <div class="col-12 col-lg-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary flex-grow-1">🔎 Search</button>
                     <?php if ($isSearchActive): ?>
                         <a href="<?= htmlspecialchars($buildFileIndexUrl($currentPath ?? '', ['q' => null])) ?>"
                            class="btn btn-outline-secondary"
@@ -230,9 +220,25 @@ $buildFileIndexUrl = static function (string $path = '', array $overrides = []) 
                     <thead class="table-dark">
                         <tr>
                             <th>Type</th>
-                            <th>Name</th>
+                            <th>
+                                <a href="<?= htmlspecialchars($buildFileIndexUrl($currentPath ?? '', ['sort' => 'name', 'order' => $nextNameSortOrder])) ?>"
+                                   class="text-white text-decoration-none d-inline-flex align-items-center gap-1"
+                                   aria-label="Sort by name <?= $nextNameSortOrder === 'asc' ? 'ascending' : 'descending' ?>"
+                                   title="Sort by name <?= $nextNameSortOrder === 'asc' ? 'ascending' : 'descending' ?>">
+                                    Name
+                                    <span aria-hidden="true"><?= $sortBy === 'name' ? ($sortOrder === 'asc' ? '↑' : '↓') : '↕' ?></span>
+                                </a>
+                            </th>
                             <th>Size</th>
-                            <th>Modified</th>
+                            <th>
+                                <a href="<?= htmlspecialchars($buildFileIndexUrl($currentPath ?? '', ['sort' => 'date', 'order' => $nextDateSortOrder])) ?>"
+                                   class="text-white text-decoration-none d-inline-flex align-items-center gap-1"
+                                   aria-label="Sort by modified date <?= $nextDateSortOrder === 'asc' ? 'ascending' : 'descending' ?>"
+                                   title="Sort by modified date <?= $nextDateSortOrder === 'asc' ? 'ascending' : 'descending' ?>">
+                                    Modified
+                                    <span aria-hidden="true"><?= $sortBy === 'date' ? ($sortOrder === 'asc' ? '↑' : '↓') : '↕' ?></span>
+                                </a>
+                            </th>
                             <th>Actions</th>
                         </tr>
                     </thead>

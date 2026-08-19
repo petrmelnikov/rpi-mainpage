@@ -54,7 +54,7 @@ Settings are stored in `config/file_index.json`:
 - **Parent directory**: Use the "⬆️ Parent Directory" button to go up one level
 - **Current directory info**: View directory and file counts with badges
 - **Search**: Enter part of a filename to search the current directory and all of its subdirectories
-- **Sorting**: Select name or modified date and choose ascending or descending order
+- **Sorting**: Click the Name or Modified table header; click it again to toggle ascending/descending order
 - **Download files**: Click the "💾 Download" button next to any file for direct download
 - **Delete files**: Click "🗑 Delete" next to a file, confirm in the modal dialog
 - **Download directories**: Click the "📦 Archive" button next to any directory for compressed download
