@@ -9,7 +9,7 @@
         <link rel="icon" type="image/png" sizes="32x32" href="/web/favicon/favicon-32.png">
         <link rel="icon" type="image/png" sizes="512x512" href="/web/favicon/favicon-512.png">
         <link rel="stylesheet" href="/vendor/twbs/bootstrap/dist/css/bootstrap.css">
-        <!-- Plyr Video Player -->
+        <!-- Plyr Media Player -->
         <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
         <link rel="stylesheet" href="/web/css/custom.css">
     </head>

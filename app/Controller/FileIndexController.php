@@ -11,19 +11,82 @@ use App\Support\PathGuard;
 
 class FileIndexController
 {
+    private const VIDEO_MIME_TYPES = [
+        'mp4' => 'video/mp4',
+        'm4v' => 'video/mp4',
+        'webm' => 'video/webm',
+        'mov' => 'video/quicktime',
+        'mkv' => 'video/x-matroska',
+        'avi' => 'video/x-msvideo',
+    ];
+
+    private const AUDIO_MIME_TYPES = [
+        'mp3' => 'audio/mpeg',
+        'm4a' => 'audio/mp4',
+        'm4b' => 'audio/mp4',
+        'aac' => 'audio/aac',
+        'wav' => 'audio/wav',
+        'flac' => 'audio/flac',
+        'oga' => 'audio/ogg',
+        'opus' => 'audio/ogg',
+        'weba' => 'audio/webm',
+    ];
+
     private string $appRoot = '';
+
+    private static function mediaTypeForPath(string $path): ?string
+    {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        // OGG is a container for both audio and video. Prefer libmagic's result
+        // when available and fall back to audio, which is the common track format.
+        if ($extension === 'ogg') {
+            $detectedMimeType = @mime_content_type($path);
+            if (is_string($detectedMimeType) && str_starts_with($detectedMimeType, 'video/')) {
+                return 'video';
+            }
+
+            return 'audio';
+        }
+
+        if (array_key_exists($extension, self::VIDEO_MIME_TYPES)) {
+            return 'video';
+        }
+        if (array_key_exists($extension, self::AUDIO_MIME_TYPES)) {
+            return 'audio';
+        }
+
+        return null;
+    }
+
+    private static function mediaMimeTypeForPath(string $path, string $mediaType): string
+    {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        if ($extension === 'ogg') {
+            return $mediaType === 'video' ? 'video/ogg' : 'audio/ogg';
+        }
+
+        if ($mediaType === 'audio') {
+            return self::AUDIO_MIME_TYPES[$extension] ?? 'audio/mpeg';
+        }
+
+        return self::VIDEO_MIME_TYPES[$extension] ?? 'video/mp4';
+    }
 
     private static function fileEntry(\SplFileInfo $file, string $relativePath): array
     {
+        $isFile = $file->isFile();
+
         return [
             'name' => $file->getFilename(),
             'path' => $relativePath,
             'fullPath' => $file->getPathname(),
             'isDir' => $file->isDir(),
             'isWritable' => @is_writable($file->getPathname()),
-            'size' => $file->isFile() ? $file->getSize() : 0,
+            'size' => $isFile ? $file->getSize() : 0,
             'modified' => $file->getMTime(),
             'isNavigable' => $file->isDir() && $file->isReadable(),
+            'mediaType' => $isFile ? self::mediaTypeForPath($file->getPathname()) : null,
         ];
     }
 
@@ -1441,27 +1504,20 @@ class FileIndexController
             exit;
         }
 
-        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-        $videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v'];
-
-        if (!in_array($extension, $videoExtensions)) {
+        $mediaType = self::mediaTypeForPath($fullPath);
+        if ($mediaType === null) {
             http_response_code(400);
-            echo 'Not a supported video file';
+            echo 'Not a supported media file';
             exit;
         }
 
         $fileSize = filesize($fullPath);
-
-        $mimeTypes = [
-            'mp4' => 'video/mp4',
-            'm4v' => 'video/mp4',
-            'webm' => 'video/webm',
-            'ogg' => 'video/ogg',
-            'mov' => 'video/quicktime',
-            'mkv' => 'video/x-matroska',
-            'avi' => 'video/x-msvideo'
-        ];
-        $mimeType = $mimeTypes[$extension] ?? 'video/mp4';
+        if ($fileSize === false || $fileSize <= 0) {
+            http_response_code(500);
+            echo 'Failed to determine media file size';
+            exit;
+        }
+        $mimeType = self::mediaMimeTypeForPath($fullPath, $mediaType);
 
         $start = 0;
         $end = $fileSize - 1;
@@ -1541,9 +1597,7 @@ class FileIndexController
             self::jsonResponse(['ok' => false, 'error' => 'File not readable'], 403);
         }
 
-        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-        $videoExtensions = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v'];
-        if (!in_array($extension, $videoExtensions, true)) {
+        if (self::mediaTypeForPath($fullPath) !== 'video') {
             self::jsonResponse(['ok' => false, 'error' => 'Not a supported video file'], 400);
         }
 

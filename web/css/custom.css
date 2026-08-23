@@ -38,15 +38,21 @@
     --bs-btn-active-border-color: #289ca6;
 }
 
-.video-modal .modal-dialog {
+.media-modal .modal-dialog {
     max-width: 90vw;
 }
-.video-modal .modal-body {
+.media-modal.audio-mode .modal-dialog {
+    max-width: 720px;
+}
+.media-modal .modal-body {
     padding: 0;
     background: #000;
 }
+.media-modal.audio-mode .modal-body {
+    padding: 1.5rem;
+}
 /* Establish stacking context for the player */
-.video-modal .plyr {
+.media-modal .plyr {
     --plyr-color-main: #30b6c2;
     position: relative !important;
     z-index: 1;
@@ -56,13 +62,13 @@
     user-select: none;
     -webkit-touch-callout: none;
 }
-.video-modal .plyr__video-wrapper {
+.media-modal .plyr__video-wrapper {
     z-index: 0 !important;
 }
-.video-modal .plyr__controls {
+.media-modal .plyr__controls {
     z-index: 20 !important;
 }
-.btn-play-video {
+.btn-play-media {
     cursor: pointer;
 }
 
@@ -74,8 +80,12 @@
     text-align: center;
 }
 /* Double-tap seek zones: visual layer only, gestures are handled on the container */
-.video-container {
+.media-container {
     position: relative;
+}
+.media-modal.audio-mode .seek-zone,
+.media-modal.audio-mode .hold-speed-indicator {
+    display: none;
 }
 .seek-zone {
     position: absolute;

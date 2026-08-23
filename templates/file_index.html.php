@@ -254,18 +254,20 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                     <?php else: ?>
                                         <?php
                                         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                                        $icon = match($extension) {
-                                            'txt', 'md', 'readme' => '📄',
-                                            'jpg', 'jpeg', 'png', 'gif', 'bmp' => '🖼️',
-                                            'pdf' => '📕',
-                                            'doc', 'docx' => '📘',
-                                            'xls', 'xlsx' => '📗',
-                                            'ppt', 'pptx' => '📙',
-                                            'zip', 'rar', '7z', 'tar', 'gz' => '📦',
-                                            'mp3', 'wav', 'ogg', 'flac' => '🎵',
-                                            'mp4', 'avi', 'mkv', 'mov' => '🎬',
-                                            'php', 'js', 'html', 'css', 'py', 'java', 'cpp', 'c' => '💻',
-                                            default => '📄'
+                                        $icon = match($file['mediaType'] ?? null) {
+                                            'audio' => '🎵',
+                                            'video' => '🎬',
+                                            default => match($extension) {
+                                                'txt', 'md', 'readme' => '📄',
+                                                'jpg', 'jpeg', 'png', 'gif', 'bmp' => '🖼️',
+                                                'pdf' => '📕',
+                                                'doc', 'docx' => '📘',
+                                                'xls', 'xlsx' => '📗',
+                                                'ppt', 'pptx' => '📙',
+                                                'zip', 'rar', '7z', 'tar', 'gz' => '📦',
+                                                'php', 'js', 'html', 'css', 'py', 'java', 'cpp', 'c' => '💻',
+                                                default => '📄'
+                                            }
                                         };
                                         ?>
                                         <i><?= $icon ?></i> <span class="badge bg-info text-dark"><?= strtoupper($extension ?: 'FILE') ?></span>
@@ -292,7 +294,7 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                     <?php if (!$file['isDir']): ?>
                                         <?php
                                         $nameExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                                        $isVideoFileForProgress = in_array($nameExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        $isVideoFileForProgress = ($file['mediaType'] ?? null) === 'video';
                                         ?>
                                         <?php if ($isVideoFileForProgress): ?>
                                             <div class="small text-muted file-video-progress d-none" data-video-progress-path="<?= htmlspecialchars($file['path']) ?>">▶ Progress: <span class="file-video-progress-percent">0%</span></div>
@@ -381,7 +383,10 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                     <?php else: ?>
                                         <?php
                                         $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                                        $isPlayableVideo = in_array($fileExt, ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi', 'm4v']);
+                                        $mediaType = (string)($file['mediaType'] ?? '');
+                                        $isPlayableVideo = $mediaType === 'video';
+                                        $isPlayableAudio = $mediaType === 'audio';
+                                        $isPlayableMedia = $isPlayableVideo || $isPlayableAudio;
                                         $isNfoFile = ($fileExt === 'nfo');
                                         ?>
                                         <?php if (!$isNfoFile && $isPlayableVideo): ?>
@@ -404,12 +409,15 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                                     title="Video info (resolution, codecs)">
                                                 ℹ️
                                             </button>
+                                        <?php endif; ?>
+                                        <?php if ($isPlayableMedia): ?>
                                             <button type="button"
-                                                    class="btn btn-sm btn-outline-success btn-icon btn-play-video"
-                                                    data-video-path="<?= htmlspecialchars($file['path']) ?>"
-                                                    data-video-name="<?= htmlspecialchars($file['name']) ?>"
-                                                    aria-label="Play video"
-                                                    title="Play video">
+                                                    class="btn btn-sm btn-outline-success btn-icon btn-play-media"
+                                                    data-media-path="<?= htmlspecialchars($file['path']) ?>"
+                                                    data-media-name="<?= htmlspecialchars($file['name']) ?>"
+                                                    data-media-type="<?= htmlspecialchars($mediaType) ?>"
+                                                    aria-label="Play <?= htmlspecialchars($mediaType) ?>"
+                                                    title="Play <?= htmlspecialchars($mediaType) ?>">
                                                 ▶️
                                             </button>
                                         <?php endif; ?>
@@ -602,19 +610,18 @@ function showDownloadProgress(button) {
     </div>
 </div>
 
-<!-- Video Player Modal -->
-<div class="modal fade video-modal" id="videoPlayerModal" tabindex="-1" aria-labelledby="videoPlayerModalLabel" aria-hidden="true">
+<!-- Local Media Player Modal -->
+<div class="modal fade media-modal" id="mediaPlayerModal" tabindex="-1" aria-labelledby="mediaPlayerModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content bg-dark">
             <div class="modal-header border-0 py-2">
-                <h6 class="modal-title text-white" id="videoPlayerModalLabel">Video Player</h6>
+                <h6 class="modal-title text-white" id="mediaPlayerModalLabel">Media Player</h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body p-0">
-                <div class="video-container">
-                    <video id="videoPlayer" playsinline controls>
-                        <source id="videoSource" src="" type="video/mp4">
-                        Your browser does not support HTML5 video.
+            <div class="modal-body">
+                <div class="media-container">
+                    <video id="mediaPlayer" playsinline controls>
+                        Your browser does not support HTML5 media.
                     </video>
                 </div>
             </div>
@@ -626,7 +633,8 @@ function showDownloadProgress(button) {
 document.addEventListener('DOMContentLoaded', function() {
     let player = null;
     let gesturesInitialized = false;
-    let currentVideoPath = null;
+    let currentMediaPath = null;
+    let currentMediaType = 'video';
     let timeUpdateTimeout = null;
     let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
     let currentVideoProgressRequest = null;
@@ -642,14 +650,14 @@ document.addEventListener('DOMContentLoaded', function() {
     let pendingToggleTimeout = null;
     let pressOutlivedTapWindow = false;
 
-    const videoModalElement = document.getElementById('videoPlayerModal');
-    const videoElement = document.getElementById('videoPlayer');
-    const modalTitle = document.getElementById('videoPlayerModalLabel');
+    const mediaModalElement = document.getElementById('mediaPlayerModal');
+    const mediaElement = document.getElementById('mediaPlayer');
+    const modalTitle = document.getElementById('mediaPlayerModalLabel');
     
     // Initialize Bootstrap modal only after DOM is ready and Bootstrap is loaded
-    let videoModal = null;
+    let mediaModal = null;
     if (typeof bootstrap !== 'undefined') {
-        videoModal = new bootstrap.Modal(videoModalElement);
+        mediaModal = new bootstrap.Modal(mediaModalElement);
     } else {
         console.error('Bootstrap is not loaded');
         return;
@@ -663,10 +671,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const SIDE_ZONE_RATIO = 0.35; // must match .seek-zone width in custom.css
     const MOVE_CANCEL_THRESHOLD = 12; // px of drift before a press stops counting as hold/tap
 
-    // Video MIME types mapping
+    // Browser media MIME types mapping
     const mimeTypes = {
-        'mp4': 'video/mp4', 'm4v': 'video/mp4', 'webm': 'video/webm', 'ogg': 'video/ogg',
-        'mov': 'video/quicktime', 'mkv': 'video/x-matroska', 'avi': 'video/x-msvideo'
+        'mp4': 'video/mp4', 'm4v': 'video/mp4', 'webm': 'video/webm',
+        'mov': 'video/quicktime', 'mkv': 'video/x-matroska', 'avi': 'video/x-msvideo',
+        'mp3': 'audio/mpeg', 'm4a': 'audio/mp4', 'm4b': 'audio/mp4', 'aac': 'audio/aac',
+        'wav': 'audio/wav', 'flac': 'audio/flac', 'oga': 'audio/ogg', 'opus': 'audio/ogg',
+        'weba': 'audio/webm'
     };
 
     // --- Backend video progress helpers ---
@@ -720,7 +731,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const progressRequest = currentVideoProgressRequest || getSavedVideoTime(pathForRequest);
 
         void progressRequest.then((savedTime) => {
-            if (!player || currentVideoPath !== pathForRequest) {
+            if (!player || currentMediaType !== 'video' || currentMediaPath !== pathForRequest) {
                 return;
             }
             if (!Number.isFinite(savedTime) || savedTime <= 0) {
@@ -892,7 +903,7 @@ document.addEventListener('DOMContentLoaded', function() {
         suppressNextClick = false;
     }
 
-    // Unified gesture layer: one pointer-events surface over the whole video.
+    // Unified gesture layer: one pointer-events surface over video only.
     // Press-and-hold (mouse or touch) anywhere -> 2x while held.
     // Double tap/click on the left/right third -> seek -+10s.
     // Single tap/click anywhere -> play/pause. In the side zones the toggle waits
@@ -917,6 +928,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let lastTapZone = null;
 
         function isGestureTarget(target) {
+            if (currentMediaType !== 'video') return false;
             if (!target || !target.closest) return false;
             if (target.closest('.plyr__controls') || target.closest('.plyr__control') || target.closest('.plyr__menu')) return false;
             return true;
@@ -1058,7 +1070,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function initPlyr() {
         if (player || typeof Plyr === 'undefined') return;
         
-        player = new Plyr(videoElement, {
+        player = new Plyr(mediaElement, {
             controls: [
                 'play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 
                 'volume', 'settings', 'pip', 'fullscreen'
@@ -1076,14 +1088,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         player.on('loadedmetadata', function() {
-            isVideoReadyForSave = true;
-            restoreSavedVideoTimeAsync(currentVideoPath);
+            isVideoReadyForSave = currentMediaType === 'video';
+            if (isVideoReadyForSave) {
+                restoreSavedVideoTimeAsync(currentMediaPath);
+            }
         });
 
         player.on('timeupdate', function() {
             if (isVideoReadyForSave && !timeUpdateTimeout) {
                 timeUpdateTimeout = setTimeout(() => {
-                    void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
+                    void saveVideoTime(currentMediaPath, player.currentTime, player.duration);
                     timeUpdateTimeout = null;
                 }, SAVE_INTERVAL);
             }
@@ -1094,48 +1108,55 @@ document.addEventListener('DOMContentLoaded', function() {
     initPlyr();
     void loadVideoProgressForFileList();
         
-    // Stop video and save final time when modal closes
-    videoModalElement.addEventListener('hidden.bs.modal', function() {
+    // Stop media and save final video time when modal closes
+    mediaModalElement.addEventListener('hidden.bs.modal', function() {
         if (player) {
             cancelActiveGesture();
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
             if (isVideoReadyForSave) {
-                void saveVideoTime(currentVideoPath, player.currentTime, player.duration);
+                void saveVideoTime(currentMediaPath, player.currentTime, player.duration);
             }
             player.pause();
             isVideoReadyForSave = false;
-            currentVideoPath = null;
+            currentMediaPath = null;
+            currentMediaType = 'video';
             currentVideoProgressRequest = null;
         }
     });
     
-    // Handle play button clicks
+    // Handle local video and audio play button clicks
     document.addEventListener('click', function(e) {
-        const playBtn = e.target.closest('.btn-play-video');
+        const playBtn = e.target.closest('.btn-play-media');
         if (!playBtn) return;
         
-        currentVideoPath = playBtn.dataset.videoPath; // Store current video path
-        const videoName = playBtn.dataset.videoName;
+        currentMediaPath = playBtn.dataset.mediaPath;
+        currentMediaType = playBtn.dataset.mediaType === 'audio' ? 'audio' : 'video';
+        const mediaName = playBtn.dataset.mediaName;
 
-        if (!currentVideoPath) return;
+        if (!currentMediaPath || !mediaName) return;
 
-        currentVideoProgressRequest = getSavedVideoTime(currentVideoPath);
+        currentVideoProgressRequest = currentMediaType === 'video'
+            ? getSavedVideoTime(currentMediaPath)
+            : null;
 
         initPlyr();
         
         isVideoReadyForSave = false;
 
-        const ext = videoName.split('.').pop().toLowerCase();
-        const mimeType = mimeTypes[ext] || 'video/mp4';
+        const ext = mediaName.split('.').pop().toLowerCase();
+        const mimeType = ext === 'ogg'
+            ? (currentMediaType === 'audio' ? 'audio/ogg' : 'video/ogg')
+            : (mimeTypes[ext] || (currentMediaType === 'audio' ? 'audio/mpeg' : 'video/mp4'));
         
-        modalTitle.textContent = videoName;
+        modalTitle.textContent = mediaName;
+        mediaModalElement.classList.toggle('audio-mode', currentMediaType === 'audio');
         
-        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(currentVideoPath);
+        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(currentMediaPath);
         
         player.source = {
-            type: 'video',
-            title: videoName,
+            type: currentMediaType,
+            title: mediaName,
             sources: [
                 {
                     src: streamUrl,
@@ -1144,8 +1165,8 @@ document.addEventListener('DOMContentLoaded', function() {
             ],
         };
         
-        if (videoModal) {
-            videoModal.show();
+        if (mediaModal) {
+            mediaModal.show();
         }
     });
 
