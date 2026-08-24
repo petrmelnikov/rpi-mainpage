@@ -294,10 +294,10 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                     <?php if (!$file['isDir']): ?>
                                         <?php
                                         $nameExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                                        $isVideoFileForProgress = ($file['mediaType'] ?? null) === 'video';
+                                        $isMediaFileForProgress = in_array(($file['mediaType'] ?? null), ['video', 'audio'], true);
                                         ?>
-                                        <?php if ($isVideoFileForProgress): ?>
-                                            <div class="small text-muted file-video-progress d-none" data-video-progress-path="<?= htmlspecialchars($file['path']) ?>">▶ Progress: <span class="file-video-progress-percent">0%</span></div>
+                                        <?php if ($isMediaFileForProgress): ?>
+                                            <div class="small text-muted file-media-progress d-none" data-media-progress-path="<?= htmlspecialchars($file['path']) ?>">▶ Progress: <span class="file-media-progress-percent">0%</span></div>
                                         <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
@@ -636,8 +636,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentMediaPath = null;
     let currentMediaType = 'video';
     let timeUpdateTimeout = null;
-    let isVideoReadyForSave = false; // Flag to prevent saving 0.00s on initial load
-    let currentVideoProgressRequest = null;
+    let isMediaReadyForSave = false; // Prevent saving 0.00s before progress has been restored
+    let currentMediaProgressRequest = null;
     let holdSpeedRestoreValue = 1;
     let holdSpeedTimeout = null;
     let holdToSpeedActive = false;
@@ -680,11 +680,11 @@ document.addEventListener('DOMContentLoaded', function() {
         'weba': 'audio/webm'
     };
 
-    // --- Backend video progress helpers ---
-    async function saveVideoTime(path, time, duration) {
+    // --- Backend media progress helpers ---
+    async function saveMediaTime(path, time, duration) {
         if (!path) return;
-        // Prevent overwriting valid saved time with 0 if video hasn't started/restored properly yet
-        if (!isVideoReadyForSave && time < 1) {
+        // Prevent overwriting valid saved time with 0 if media hasn't started/restored properly yet
+        if (!isMediaReadyForSave && time < 1) {
             return;
         }
 
@@ -701,11 +701,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 }),
             });
         } catch (e) {
-            console.error("Failed to save video time to backend", e);
+            console.error("Failed to save media time to backend", e);
         }
     }
 
-    async function getSavedVideoTime(path) {
+    async function getSavedMediaTime(path) {
         if (!path) return 0;
 
         try {
@@ -718,20 +718,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
             return parseFloat(payload.time || 0);
         } catch (e) {
-            console.error("Failed to get video time from backend", e);
+            console.error("Failed to get media time from backend", e);
             return 0;
         }
     }
 
-    function restoreSavedVideoTimeAsync(pathForRequest) {
+    function restoreSavedMediaTimeAsync(pathForRequest) {
         if (!pathForRequest) {
             return;
         }
 
-        const progressRequest = currentVideoProgressRequest || getSavedVideoTime(pathForRequest);
+        const progressRequest = currentMediaProgressRequest || getSavedMediaTime(pathForRequest);
 
         void progressRequest.then((savedTime) => {
-            if (!player || currentMediaType !== 'video' || currentMediaPath !== pathForRequest) {
+            if (!player || currentMediaPath !== pathForRequest) {
                 return;
             }
             if (!Number.isFinite(savedTime) || savedTime <= 0) {
@@ -751,12 +751,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    async function loadVideoProgressForFileList() {
-        const progressRows = Array.from(document.querySelectorAll('[data-video-progress-path]'));
+    async function loadMediaProgressForFileList() {
+        const progressRows = Array.from(document.querySelectorAll('[data-media-progress-path]'));
         if (!progressRows.length) return;
 
         const paths = progressRows
-            .map((row) => row.dataset.videoProgressPath || '')
+            .map((row) => row.dataset.mediaProgressPath || '')
             .filter((value) => value);
 
         if (!paths.length) return;
@@ -776,21 +776,21 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!payload || !payload.ok || !payload.progress) return;
 
             for (const row of progressRows) {
-                const path = row.dataset.videoProgressPath || '';
+                const path = row.dataset.mediaProgressPath || '';
                 const progress = payload.progress[path];
                 if (!progress) continue;
 
                 const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
                 if (percent <= 0) continue;
 
-                const percentEl = row.querySelector('.file-video-progress-percent');
+                const percentEl = row.querySelector('.file-media-progress-percent');
                 if (percentEl) {
                     percentEl.textContent = percent.toFixed(0) + '%';
                 }
                 row.classList.remove('d-none');
             }
         } catch (e) {
-            console.error('Failed to load file list video progress', e);
+            console.error('Failed to load file list media progress', e);
         }
     }
 
@@ -1088,16 +1088,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         player.on('loadedmetadata', function() {
-            isVideoReadyForSave = currentMediaType === 'video';
-            if (isVideoReadyForSave) {
-                restoreSavedVideoTimeAsync(currentMediaPath);
-            }
+            isMediaReadyForSave = true;
+            restoreSavedMediaTimeAsync(currentMediaPath);
         });
 
         player.on('timeupdate', function() {
-            if (isVideoReadyForSave && !timeUpdateTimeout) {
+            if (isMediaReadyForSave && !timeUpdateTimeout) {
                 timeUpdateTimeout = setTimeout(() => {
-                    void saveVideoTime(currentMediaPath, player.currentTime, player.duration);
+                    void saveMediaTime(currentMediaPath, player.currentTime, player.duration);
                     timeUpdateTimeout = null;
                 }, SAVE_INTERVAL);
             }
@@ -1106,22 +1104,22 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize on load
     initPlyr();
-    void loadVideoProgressForFileList();
+    void loadMediaProgressForFileList();
         
-    // Stop media and save final video time when modal closes
+    // Stop media and save final progress when modal closes
     mediaModalElement.addEventListener('hidden.bs.modal', function() {
         if (player) {
             cancelActiveGesture();
             clearTimeout(timeUpdateTimeout);
             timeUpdateTimeout = null;
-            if (isVideoReadyForSave) {
-                void saveVideoTime(currentMediaPath, player.currentTime, player.duration);
+            if (isMediaReadyForSave) {
+                void saveMediaTime(currentMediaPath, player.currentTime, player.duration);
             }
             player.pause();
-            isVideoReadyForSave = false;
+            isMediaReadyForSave = false;
             currentMediaPath = null;
             currentMediaType = 'video';
-            currentVideoProgressRequest = null;
+            currentMediaProgressRequest = null;
         }
     });
     
@@ -1136,13 +1134,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!currentMediaPath || !mediaName) return;
 
-        currentVideoProgressRequest = currentMediaType === 'video'
-            ? getSavedVideoTime(currentMediaPath)
-            : null;
+        currentMediaProgressRequest = getSavedMediaTime(currentMediaPath);
 
         initPlyr();
         
-        isVideoReadyForSave = false;
+        isMediaReadyForSave = false;
 
         const ext = mediaName.split('.').pop().toLowerCase();
         const mimeType = ext === 'ogg'
