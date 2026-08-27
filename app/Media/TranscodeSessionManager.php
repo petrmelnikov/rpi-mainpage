@@ -35,7 +35,10 @@ final class TranscodeSessionManager
 
             $id = bin2hex(random_bytes(32));
             $dir = $this->sessionDir($id);
-            if (!mkdir($dir, 0770, true) && !is_dir($dir)) {
+            // Nginx serves only controller-approved HLS artifacts through an
+            // internal location, but its worker UID must be able to traverse
+            // the session directory mounted read-only in the nginx container.
+            if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
                 throw new \RuntimeException('Unable to create transcode session');
             }
 
@@ -237,11 +240,16 @@ final class TranscodeSessionManager
         if ($this->isProcessRunning((int)($state['workerPid'] ?? 0))) return;
 
         $script = rtrim(App::getInstance()->appRoot, '/') . '/scripts/media-transcode-worker.php';
+        $phpCli = trim((string)getenv('MEDIA_PHP_CLI_BIN')) ?: '/usr/local/bin/php';
+        if (!is_executable($phpCli)) {
+            throw new \RuntimeException('PHP CLI executable is unavailable: ' . $phpCli);
+        }
         $setsid = is_executable('/usr/bin/setsid') ? '/usr/bin/setsid' : (is_executable('/bin/setsid') ? '/bin/setsid' : 'setsid');
+        $launchLog = $this->sessionDir($id) . '/worker-launch.log';
         $pipes = [];
         $process = @proc_open(
-            [$setsid, '--fork', PHP_BINARY, $script, '--session', $id],
-            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'a'], 2 => ['file', '/dev/null', 'a']],
+            [$setsid, '--fork', $phpCli, $script, '--session', $id],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', $launchLog, 'a'], 2 => ['file', $launchLog, 'a']],
             $pipes,
             App::getInstance()->appRoot,
             null,

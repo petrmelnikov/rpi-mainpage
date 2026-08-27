@@ -42,6 +42,7 @@ Environment variables and defaults:
 
 - `MEDIA_FFMPEG_BIN=/usr/local/bin/ffmpeg`
 - `MEDIA_FFPROBE_BIN=/usr/local/bin/ffprobe`
+- `MEDIA_PHP_CLI_BIN=/usr/local/bin/php`
 - `MEDIA_TRANSCODE_DIR=/media/.rpi-mainpage-data/transcodes`
 - `MEDIA_HLS_SEGMENT_SECONDS=4`
 - `MEDIA_HLS_BATCH_SEGMENTS=4`
