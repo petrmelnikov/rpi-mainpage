@@ -1,6 +1,7 @@
 /vendor
 /.idea/*
 .DS_Store
+.env
 .env.ssh
 .docker-ssh/
 /var/

@@ -6,6 +6,7 @@ use App\TemplateRenderer;
 use App\MenuBuilder;
 use App\App;
 use App\Controller\FileIndexController;
+use App\Controller\MediaTranscodeController;
 use App\Controller\SettingsController;
 use App\Controller\SystemController;
 use App\Controller\ToolsController;
@@ -21,6 +22,7 @@ $router = new Router();
 (new SystemController())->registerRoutes($router, $app->appRoot);
 (new ToolsController())->registerRoutes($router, $app->appRoot);
 (new FileIndexController())->registerRoutes($router, $app->appRoot);
+(new MediaTranscodeController())->registerRoutes($router);
 (new SettingsController())->registerRoutes($router, $app->appRoot);
 (new YouTubePlayerController())->registerRoutes($router, $app->appRoot);
 
