@@ -624,6 +624,7 @@ function showDownloadProgress(button) {
                         Your browser does not support HTML5 media.
                     </video>
                 </div>
+                <div class="alert alert-danger d-none mt-2 mb-0" id="mediaPlaybackError" role="alert"></div>
             </div>
         </div>
     </div>
@@ -638,6 +639,12 @@ document.addEventListener('DOMContentLoaded', function() {
     let timeUpdateTimeout = null;
     let isMediaReadyForSave = false; // Prevent saving 0.00s before progress has been restored
     let currentMediaProgressRequest = null;
+    let currentMediaName = '';
+    let currentPlaybackMode = 'idle';
+    let activeTranscodeSessionId = null;
+    let hlsInstance = null;
+    let playbackRequestId = 0;
+    let directFallbackAttempted = false;
     let holdSpeedRestoreValue = 1;
     let holdSpeedTimeout = null;
     let holdToSpeedActive = false;
@@ -653,6 +660,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const mediaModalElement = document.getElementById('mediaPlayerModal');
     const mediaElement = document.getElementById('mediaPlayer');
     const modalTitle = document.getElementById('mediaPlayerModalLabel');
+    const mediaPlaybackError = document.getElementById('mediaPlaybackError');
     
     // Initialize Bootstrap modal only after DOM is ready and Bootstrap is loaded
     let mediaModal = null;
@@ -670,6 +678,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const DOUBLE_TAP_DELAY = 300;
     const SIDE_ZONE_RATIO = 0.35; // must match .seek-zone width in custom.css
     const MOVE_CANCEL_THRESHOLD = 12; // px of drift before a press stops counting as hold/tap
+    const HLS_MIME_TYPE = 'application/vnd.apple.mpegurl';
 
     // Browser media MIME types mapping
     const mimeTypes = {
@@ -679,6 +688,230 @@ document.addEventListener('DOMContentLoaded', function() {
         'wav': 'audio/wav', 'flac': 'audio/flac', 'oga': 'audio/ogg', 'opus': 'audio/ogg',
         'weba': 'audio/webm'
     };
+
+    function guessMimeType(mediaName, mediaType) {
+        const ext = String(mediaName || '').split('.').pop().toLowerCase();
+        if (ext === 'ogg') {
+            return mediaType === 'audio' ? 'audio/ogg' : 'video/ogg';
+        }
+        return mimeTypes[ext] || (mediaType === 'audio' ? 'audio/mpeg' : 'video/mp4');
+    }
+
+    function mimeTypeWithCodecs(mimeType, codecs) {
+        let codecList = '';
+        if (Array.isArray(codecs)) {
+            codecList = codecs.join(',');
+        } else if (codecs && typeof codecs === 'object') {
+            codecList = Object.values(codecs).filter(Boolean).join(',');
+        } else {
+            codecList = String(codecs || '').trim();
+        }
+        if (!codecList || /;\s*codecs\s*=/i.test(mimeType)) {
+            return mimeType;
+        }
+        return mimeType + '; codecs="' + codecList.replace(/["\\]/g, '') + '"';
+    }
+
+    function browserPlaybackCapabilities() {
+        const nativeHls = mediaElement.canPlayType(HLS_MIME_TYPE) !== ''
+            || mediaElement.canPlayType('application/x-mpegURL') !== '';
+        const hevcTypes = [
+            'video/mp4; codecs="hvc1"',
+            'video/mp4; codecs="hev1"',
+            'video/mp4; codecs="hvc1.1.6.L93.B0"'
+        ];
+        const hevc = hevcTypes.some((type) => mediaElement.canPlayType(type) !== '')
+            || (typeof MediaSource !== 'undefined'
+                && typeof MediaSource.isTypeSupported === 'function'
+                && hevcTypes.some((type) => MediaSource.isTypeSupported(type)));
+
+        return { hevc, nativeHls };
+    }
+
+    function destroyHlsInstance() {
+        if (!hlsInstance) return;
+        hlsInstance.destroy();
+        hlsInstance = null;
+    }
+
+    function showPlaybackError(message = '', severity = 'danger') {
+        if (!mediaPlaybackError) return;
+        mediaPlaybackError.textContent = message;
+        mediaPlaybackError.classList.toggle('d-none', !message);
+        mediaPlaybackError.classList.toggle('alert-warning', Boolean(message) && severity === 'warning');
+        mediaPlaybackError.classList.toggle('alert-danger', !message || severity !== 'warning');
+    }
+
+    function stopTranscodeSession(sessionId, useBeacon = false) {
+        if (!sessionId) return Promise.resolve();
+
+        const payload = JSON.stringify({ sessionId });
+        if (useBeacon && navigator.sendBeacon) {
+            const body = new Blob([payload], { type: 'application/json' });
+            if (navigator.sendBeacon('/file-index/transcode/stop', body)) {
+                return Promise.resolve();
+            }
+        }
+
+        return fetch('/file-index/transcode/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: payload,
+            keepalive: true
+        }).then(() => undefined).catch((error) => {
+            console.warn('Failed to stop transcode session', error);
+        });
+    }
+
+    function releaseCurrentPlayback(useBeacon = false) {
+        playbackRequestId++;
+        currentPlaybackMode = 'idle';
+        destroyHlsInstance();
+
+        const sessionId = activeTranscodeSessionId;
+        activeTranscodeSessionId = null;
+        return stopTranscodeSession(sessionId, useBeacon);
+    }
+
+    async function getPlaybackPlan(path) {
+        const response = await fetch('/file-index/playback-plan?path=' + encodeURIComponent(path), {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || payload.ok === false) {
+            throw new Error(payload && payload.error
+                ? String(payload.error)
+                : 'Failed to inspect media (' + response.status + ')');
+        }
+        return payload.plan || payload;
+    }
+
+    function setDirectSource(path, mediaName, mediaType, mimeType) {
+        currentPlaybackMode = 'direct';
+        destroyHlsInstance();
+        player.source = {
+            type: mediaType,
+            title: mediaName,
+            sources: [{
+                src: '/file-index/stream?path=' + encodeURIComponent(path),
+                type: mimeType,
+            }],
+        };
+    }
+
+    async function startHlsPlayback(path, mediaName, requestId) {
+        const capabilities = browserPlaybackCapabilities();
+        if (!capabilities.nativeHls
+            && (typeof Hls === 'undefined' || typeof Hls.isSupported !== 'function' || !Hls.isSupported())) {
+            throw new Error('This browser cannot play HLS streams.');
+        }
+
+        currentPlaybackMode = 'loading-hls';
+        destroyHlsInstance();
+        const previousSessionId = activeTranscodeSessionId;
+        activeTranscodeSessionId = null;
+        await stopTranscodeSession(previousSessionId);
+
+        const response = await fetch('/file-index/transcode/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                path,
+                client: capabilities
+            })
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || payload.ok === false) {
+            throw new Error(payload && payload.error
+                ? String(payload.error)
+                : 'Failed to start transcoding (' + response.status + ')');
+        }
+
+        const sessionId = payload.sessionId || (payload.session && payload.session.id) || '';
+        const playlistUrl = payload.playlistUrl || (payload.playlist && payload.playlist.url) || '';
+        if (!sessionId || !playlistUrl) {
+            throw new Error('The transcoder returned an incomplete playback session.');
+        }
+        if (requestId !== playbackRequestId || currentMediaPath !== path) {
+            void stopTranscodeSession(sessionId);
+            return;
+        }
+
+        activeTranscodeSessionId = sessionId;
+        currentPlaybackMode = 'hls';
+        if (payload.warning) {
+            showPlaybackError(String(payload.warning), 'warning');
+        }
+
+        if (capabilities.nativeHls) {
+            player.source = {
+                type: 'video',
+                title: mediaName,
+                sources: [{ src: playlistUrl, type: HLS_MIME_TYPE }],
+            };
+            return;
+        }
+
+        mediaElement.pause();
+        mediaElement.removeAttribute('src');
+        mediaElement.querySelectorAll('source').forEach((source) => source.remove());
+        mediaElement.load();
+
+        const instance = new Hls({
+            enableWorker: true,
+            backBufferLength: 90
+        });
+        hlsInstance = instance;
+        instance.on(Hls.Events.ERROR, function(_event, data) {
+            if (!data || !data.fatal || instance !== hlsInstance) return;
+            console.error('Fatal HLS playback error', data);
+            const failedSessionId = activeTranscodeSessionId;
+            activeTranscodeSessionId = null;
+            currentPlaybackMode = 'error';
+            destroyHlsInstance();
+            void stopTranscodeSession(failedSessionId);
+            showPlaybackError('HLS playback failed. Please try the file again.');
+        });
+        instance.loadSource(playlistUrl);
+        instance.attachMedia(mediaElement);
+    }
+
+    async function selectVideoSource(path, mediaName, requestId) {
+        let plan;
+        try {
+            plan = await getPlaybackPlan(path);
+        } catch (error) {
+            // Keep the old direct-stream behaviour available if probing is temporarily unavailable.
+            console.warn('Playback plan unavailable; trying direct playback', error);
+            if (requestId === playbackRequestId && currentMediaPath === path) {
+                setDirectSource(path, mediaName, 'video', guessMimeType(mediaName, 'video'));
+            }
+            return;
+        }
+
+        if (requestId !== playbackRequestId || currentMediaPath !== path) return;
+
+        const source = plan.source || {};
+        const mimeType = String(source.mime || plan.mime || guessMimeType(mediaName, 'video'));
+        const codecs = source.codecs !== undefined ? source.codecs : plan.codecs;
+        const browserSupport = mediaElement.canPlayType(mimeTypeWithCodecs(mimeType, codecs));
+        const serverAllowsDirect = plan.directSupportedHint !== false
+            && source.directSupportedHint !== false;
+
+        if (browserSupport !== '' && serverAllowsDirect) {
+            setDirectSource(path, mediaName, 'video', mimeTypeWithCodecs(mimeType, codecs));
+            return;
+        }
+
+        await startHlsPlayback(path, mediaName, requestId);
+    }
 
     // --- Backend media progress helpers ---
     async function saveMediaTime(path, time, duration) {
@@ -1116,23 +1349,84 @@ document.addEventListener('DOMContentLoaded', function() {
                 void saveMediaTime(currentMediaPath, player.currentTime, player.duration);
             }
             player.pause();
+            void releaseCurrentPlayback(true);
             isMediaReadyForSave = false;
             currentMediaPath = null;
+            currentMediaName = '';
             currentMediaType = 'video';
             currentMediaProgressRequest = null;
+            directFallbackAttempted = false;
+            showPlaybackError('');
         }
+    });
+
+    // canPlayType() is deliberately conservative but not infallible. If a source that
+    // looked playable still fails at runtime, retry it through the transcoder once.
+    mediaElement.addEventListener('error', function() {
+        if (currentMediaType === 'video' && currentPlaybackMode === 'hls') {
+            const failedSessionId = activeTranscodeSessionId;
+            activeTranscodeSessionId = null;
+            currentPlaybackMode = 'error';
+            destroyHlsInstance();
+            void stopTranscodeSession(failedSessionId);
+            showPlaybackError('HLS playback failed. Please try the file again.');
+            return;
+        }
+        if (currentMediaType !== 'video'
+            || currentPlaybackMode !== 'direct'
+            || directFallbackAttempted
+            || !currentMediaPath) {
+            return;
+        }
+
+        directFallbackAttempted = true;
+        const path = currentMediaPath;
+        const mediaName = currentMediaName;
+        const requestId = playbackRequestId;
+        const failedAt = player ? Number(player.currentTime) || 0 : 0;
+        if (isMediaReadyForSave && player) {
+            void saveMediaTime(path, player.currentTime, player.duration);
+        }
+        if (failedAt > 0) {
+            currentMediaProgressRequest = Promise.resolve(failedAt);
+        }
+        void startHlsPlayback(path, mediaName, requestId).catch((error) => {
+            console.error('Direct playback and HLS fallback both failed', error);
+            if (requestId === playbackRequestId && currentMediaPath === path) {
+                showPlaybackError(error && error.message ? error.message : 'Unable to play this video.');
+            }
+        });
+    });
+
+    window.addEventListener('pagehide', function() {
+        void releaseCurrentPlayback(true);
     });
     
     // Handle local video and audio play button clicks
     document.addEventListener('click', function(e) {
         const playBtn = e.target.closest('.btn-play-media');
         if (!playBtn) return;
-        
-        currentMediaPath = playBtn.dataset.mediaPath;
-        currentMediaType = playBtn.dataset.mediaType === 'audio' ? 'audio' : 'video';
+
+        const nextMediaPath = playBtn.dataset.mediaPath;
+        const nextMediaType = playBtn.dataset.mediaType === 'audio' ? 'audio' : 'video';
         const mediaName = playBtn.dataset.mediaName;
 
-        if (!currentMediaPath || !mediaName) return;
+        if (!nextMediaPath || !mediaName) return;
+
+        if (player && currentMediaPath && isMediaReadyForSave) {
+            void saveMediaTime(currentMediaPath, player.currentTime, player.duration);
+        }
+        if (player) {
+            player.pause();
+        }
+        void releaseCurrentPlayback();
+
+        currentMediaPath = nextMediaPath;
+        currentMediaType = nextMediaType;
+        currentMediaName = mediaName;
+        directFallbackAttempted = false;
+        showPlaybackError('');
+        const requestId = ++playbackRequestId;
 
         currentMediaProgressRequest = getSavedMediaTime(currentMediaPath);
 
@@ -1140,27 +1434,25 @@ document.addEventListener('DOMContentLoaded', function() {
         
         isMediaReadyForSave = false;
 
-        const ext = mediaName.split('.').pop().toLowerCase();
-        const mimeType = ext === 'ogg'
-            ? (currentMediaType === 'audio' ? 'audio/ogg' : 'video/ogg')
-            : (mimeTypes[ext] || (currentMediaType === 'audio' ? 'audio/mpeg' : 'video/mp4'));
-        
         modalTitle.textContent = mediaName;
         mediaModalElement.classList.toggle('audio-mode', currentMediaType === 'audio');
-        
-        const streamUrl = '/file-index/stream?path=' + encodeURIComponent(currentMediaPath);
-        
-        player.source = {
-            type: currentMediaType,
-            title: mediaName,
-            sources: [
-                {
-                    src: streamUrl,
-                    type: mimeType,
-                },
-            ],
-        };
-        
+
+        if (currentMediaType === 'audio') {
+            setDirectSource(
+                currentMediaPath,
+                mediaName,
+                'audio',
+                guessMimeType(mediaName, 'audio')
+            );
+        } else {
+            void selectVideoSource(currentMediaPath, mediaName, requestId).catch((error) => {
+                if (requestId === playbackRequestId && currentMediaPath === nextMediaPath) {
+                    console.error('Failed to prepare video playback', error);
+                    showPlaybackError(error && error.message ? error.message : 'Unable to prepare this video.');
+                }
+            });
+        }
+
         if (mediaModal) {
             mediaModal.show();
         }

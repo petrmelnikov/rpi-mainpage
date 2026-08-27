@@ -7,6 +7,7 @@ use App\DownloadQueueManager;
 use App\FileIndexManager;
 use App\Router;
 use App\ShellCommandExecutor;
+use App\Media\MediaToolchain;
 use App\Support\PathGuard;
 
 class FileIndexController
@@ -1601,18 +1602,11 @@ class FileIndexController
             self::jsonResponse(['ok' => false, 'error' => 'Not a supported video file'], 400);
         }
 
-        $ffprobe = @shell_exec('command -v ffprobe 2>/dev/null');
-        if (!is_string($ffprobe) || trim($ffprobe) === '') {
-            self::jsonResponse(['ok' => false, 'error' => 'ffprobe is not installed on the server'], 501);
-        }
-
-        $cmd = 'ffprobe -v error -print_format json -show_format -show_streams ' . escapeshellarg($fullPath) . ' 2>&1';
-        $raw = @shell_exec($cmd);
-        $data = is_string($raw) ? json_decode($raw, true) : null;
-
-        if (!is_array($data) || empty($data['streams']) || !is_array($data['streams'])) {
-            $detail = is_string($raw) ? trim(mb_substr($raw, 0, 300)) : '';
-            self::jsonResponse(['ok' => false, 'error' => 'ffprobe failed' . ($detail !== '' ? ': ' . $detail : '')], 500);
+        try {
+            // Video Info and HLS use the exact same pinned toolchain.
+            $data = (new MediaToolchain())->probe($fullPath);
+        } catch (\RuntimeException $e) {
+            self::jsonResponse(['ok' => false, 'error' => $e->getMessage()], 500);
         }
 
         self::jsonResponse(['ok' => true, 'sections' => self::buildVideoInfoSections($data, $fullPath)]);

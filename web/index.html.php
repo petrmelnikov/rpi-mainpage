@@ -21,6 +21,7 @@
             ?>
         </div>
         <script src="/vendor/twbs/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
         <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
     </body>
 </html>

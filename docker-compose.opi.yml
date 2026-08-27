@@ -1,0 +1,14 @@
+# Orange Pi 5 Plus / RK3588 production override.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.opi.yml up -d --build
+services:
+  app:
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/dma_heap:/dev/dma_heap
+      - /dev/mali0:/dev/mali0
+      - /dev/rga:/dev/rga
+      - /dev/mpp_service:/dev/mpp_service
+    group_add:
+      - video
+    environment:
+      MEDIA_H264_BITRATE: ${MEDIA_H264_BITRATE:-6000k}
