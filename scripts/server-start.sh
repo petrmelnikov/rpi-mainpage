@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Start the app on the server: nginx + php-fpm containers with SSH bridge to host.
+# Start the app on the server. Orange Pi override selection is automatic.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [ ! -f .env ]; then
+  cp .env.example .env
+  echo "Created .env from .env.example"
+fi
+
 . scripts/_compose.sh
 
 if [ ! -f .env.ssh ]; then
@@ -13,7 +19,19 @@ if [ ! -f .env.ssh ]; then
   esac
 fi
 
-compose up --build -d
+state_root="${HOST_MEDIA_ROOT:-/media}/.rpi-mainpage-data"
+if [ ! -d "${state_root}/transcodes" ]; then
+  echo "Missing ${state_root}/transcodes; run ./scripts/server-install.sh first." >&2
+  exit 1
+fi
+
+echo "Deployment mode: $(compose_mode)"
+compose build app
+if [ ! -f vendor/autoload.php ]; then
+  compose run --rm --no-deps --user 1000:1000 app \
+    composer install --no-dev --optimize-autoloader --no-interaction --working-dir=/app
+fi
+compose up -d --remove-orphans
 echo
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo "App started: http://${HOST_IP:-localhost}/"

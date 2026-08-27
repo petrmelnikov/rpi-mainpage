@@ -66,6 +66,27 @@ if id "$APP_RUN_USER" >/dev/null 2>&1 && [ -n "$APP_RUN_GROUPS" ]; then
   usermod -a -G "$APP_RUN_GROUPS" "$APP_RUN_USER" || true
 fi
 
+# PHP-FPM drops root privileges and initializes the configured user's groups.
+# On RK3588 hosts device GIDs can differ between Ubuntu/Armbian and Debian in
+# the container, so create matching groups and add the runtime user by GID.
+if [ "${APP_ADD_DEVICE_GROUPS:-0}" = "1" ] && id "$APP_RUN_USER" >/dev/null 2>&1; then
+  for DEVICE_PATH in /dev/mpp_service /dev/rga /dev/mali0 /dev/dma_heap/* /dev/dri/renderD* /dev/dri/card*; do
+    if [ ! -e "$DEVICE_PATH" ]; then
+      continue
+    fi
+    DEVICE_GID="$(stat -c '%g' "$DEVICE_PATH" 2>/dev/null || true)"
+    case "$DEVICE_GID" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    DEVICE_GROUP="$(getent group "$DEVICE_GID" | cut -d: -f1 || true)"
+    if [ -z "$DEVICE_GROUP" ]; then
+      DEVICE_GROUP="rpi-device-${DEVICE_GID}"
+      groupadd -g "$DEVICE_GID" "$DEVICE_GROUP" || true
+    fi
+    usermod -a -G "$DEVICE_GROUP" "$APP_RUN_USER" || true
+  done
+fi
+
 if [ -n "${UPLOAD_BASE_DIR:-}" ]; then
   TOOLS_DATA_DIR="$UPLOAD_BASE_DIR/hosted-tools"
   mkdir -p "$TOOLS_DATA_DIR/apps" "$TOOLS_DATA_DIR/manifests"

@@ -1,97 +1,92 @@
-# Docker + Nginx + single SSH connection
+# Docker и SSH-мост к хосту
 
-This setup runs the app in Docker behind Nginx (port 80) and executes shell commands over one shared SSH connection.
+Основная установка описана в [README.md](README.md). Этот документ объясняет SSH-часть конфигурации.
 
-## Scripts
+## Зачем приложению SSH
 
-Server (run on the host, in the app directory, e.g. `/apps/rpi-mainpage`):
+PHP работает в контейнере, но некоторые системные и файловые операции должны выполняться на Orange Pi. Для них `app` открывает одно выделенное SSH-соединение к хосту и повторно использует его через OpenSSH ControlMaster.
 
-- `scripts/server-start.sh` — start containers; offers to run SSH key setup first if `.env.ssh` is missing
-- `scripts/server-update.sh` — `git pull --ff-only` + `composer install` (runs composer inside the `app` container when available); hints to restart if docker files changed
-- `scripts/server-restart.sh` — full restart with rebuild (`down` + `up --build -d`)
-- `scripts/server-stop.sh` — stop and remove containers (`down`)
+Контейнер подключается к:
 
-Dev machine (macOS, no containers):
+```text
+host.docker.internal:22
+```
 
-- `scripts/dev-start.sh [port]` — PHP built-in server at `http://127.0.0.1:8080` (routes through `scripts/dev-router.php`)
+В `docker-compose.yml` это имя направляется на Docker host gateway. SSH-сервер хоста должен слушать не только `127.0.0.1`.
 
-## 1) Prepare key and env
+## Первичная настройка
+
+На Orange Pi выполните:
 
 ```bash
+sudo systemctl enable --now ssh
+cd /apps/rpi-mainpage
 ./scripts/setup-docker-ssh-key.sh
 ```
 
-What the script does:
-- generates a dedicated Ed25519 key in `.docker-ssh/` (if missing)
-- writes `.env.ssh` with `SSH_REMOTE_HOST`, `SSH_REMOTE_PORT`, `SSH_REMOTE_USER`, `SSH_PRIVATE_KEY_B64`
-- appends the public key to remote `~/.ssh/authorized_keys` only if it is not already present (does not overwrite existing keys)
+Для установки на том же сервере используйте ответы:
 
-Optional variable in `.env.ssh`:
-- `SSH_REMOTE_HOST` — SSH endpoint reachable from the `app` container (default: `host.docker.internal`)
-  - note: `setup-docker-ssh-key.sh` should be run on host and asks separately for provisioning host (where public key is installed now)
-- `SSH_PROVISION_HOST` — optional default for one-time key provisioning host used by setup script
-- `SSH_REMOTE_APP_DIR` — absolute path to this project on remote host (default: `/apps/rpi-mainpage`)
-- `APP_RUN_USER` — PHP-FPM runtime user inside container (default: `ubuntu`, uid `1000`)
-- `APP_RUN_GROUPS` — extra groups added to `APP_RUN_USER` on container startup (default: `www-data`)
-
-This path is used by the **pull** button and composer install commands.
-
-`APP_RUN_USER=ubuntu` helps writes to bind-mounted host directories (uploads, URL downloads, NFO save)
-when those paths are owned by host user with uid `1000`.
-
-When running `docker/php/init-ssh-and-run.sh` manually, it now auto-loads SSH variables
-from `/app/.env.ssh` (inside container) or `./.env.ssh` (current directory).
-
-If media folders are owned by `www-data:www-data` with mode like `drwxrwxr-x`, keep
-`APP_RUN_GROUPS=www-data` so file manager can create/delete entries there.
-
-## 2) Start
-
-```bash
-docker compose up --build
+```text
+Remote host for container: host.docker.internal
+Remote port: 22
+Remote user: ubuntu
+Host used now for key provisioning: localhost
 ```
 
-App is available at `http://localhost` (port `80` by default).
+Последний адрес используется только один раз, чтобы добавить публичный ключ в `~/.ssh/authorized_keys`. Он отличается от адреса, по которому позднее подключается контейнер.
 
-## File Index and host disks
+Скрипт создаёт:
 
-`app` container mounts host media path:
+- `.docker-ssh/id_ed25519` и публичный ключ;
+- `.env.ssh` с endpoint, пользователем и закрытым ключом в base64;
+- запись публичного ключа в `authorized_keys`, не удаляя существующие ключи.
 
-- `${HOST_MEDIA_ROOT:-/media}:/media`
+Оба локальных файла исключены из Git.
 
-So host directories like `/media/usb_ssd/...` are visible in container at the same path.
+## Параметры `.env.ssh`
 
-If your files are not under `/media`, set env before start:
-
-```bash
-export HOST_MEDIA_ROOT=/your/host/path
-docker compose up --build -d
+```dotenv
+SSH_REMOTE_HOST=host.docker.internal
+SSH_REMOTE_PORT=22
+SSH_REMOTE_USER=ubuntu
+SSH_PRIVATE_KEY_B64=<generated-value>
 ```
 
-## Runtime architecture
+Дополнительно можно добавить:
 
-- `nginx` container serves HTTP on port `80`
-- `app` container runs `php-fpm`
-- Nginx forwards PHP requests to `app:9000`
-
-The app is **not** started with `php -S`.
-
-## How single SSH session works
-
-Container init (`init-ssh-and-run.sh`) creates SSH config with:
-- `ControlMaster auto`
-- `ControlPersist 10m`
-- `ControlPath /tmp/ssh/cm-%r@%h:%p`
-
-Then it runs:
-
-```bash
-ssh -F /tmp/ssh/config -MNf remote-target
+```dotenv
+SSH_REMOTE_APP_DIR=/apps/rpi-mainpage
+APP_RUN_USER=ubuntu
+APP_RUN_GROUPS=www-data
 ```
 
-This opens one master connection. Subsequent command executions use `run-over-ssh.sh`, reusing the same control socket.
+Несекретные параметры предпочтительно хранить в `.env`, а не в `.env.ssh`.
 
-## Notes
+## Как работает соединение
 
-- Keep `.env.ssh` and `.docker-ssh/` private.
-- If remote host changes, rerun `./scripts/setup-docker-ssh-key.sh`.
+При старте `docker/php/init-ssh-and-run.sh`:
+
+1. загружает `.env.ssh`;
+2. восстанавливает ключ в `/tmp/ssh`;
+3. создаёт OpenSSH-конфигурацию с `ControlMaster auto` и `ControlPersist 10m`;
+4. прогревает соединение от имени PHP-FPM пользователя;
+5. запускает PHP-FPM.
+
+Последующие команды проходят через `/usr/local/bin/run-over-ssh.sh` и используют тот же control socket.
+
+## Проверка
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.opi.yml \
+  exec -T -u ubuntu app \
+  ssh -F /tmp/ssh/config remote-target 'id && hostname'
+```
+
+Логи и общая диагностика:
+
+```bash
+./scripts/server-logs.sh
+./scripts/server-check.sh
+```
+
+Если ключ или адрес изменились, повторно запустите `./scripts/setup-docker-ssh-key.sh`, затем `./scripts/server-restart.sh`.

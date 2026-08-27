@@ -12,3 +12,4 @@ services:
       - video
     environment:
       MEDIA_H264_BITRATE: ${MEDIA_H264_BITRATE:-6000k}
+      APP_ADD_DEVICE_GROUPS: "1"
