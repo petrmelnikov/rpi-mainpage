@@ -64,6 +64,7 @@ if [ "${failed}" -eq 0 ]; then
 
   if [ "${RPI_MAINPAGE_OPI_ENABLED}" -eq 1 ]; then
     if compose exec -T app sh -lc 'ffmpeg -hide_banner -encoders 2>&1 | grep -q h264_rkmpp'; then pass "h264_rkmpp encoder is present"; else fail "h264_rkmpp encoder is missing"; fi
+    if compose exec -T app sh -lc 'ffmpeg -hide_banner -decoders 2>&1 | grep -q hevc_rkmpp'; then pass "hevc_rkmpp decoder is present"; else fail "hevc_rkmpp decoder is missing"; fi
     if compose exec -T app sh -lc 'ffmpeg -hide_banner -filters 2>&1 | grep -q rkrga'; then pass "RKRGA filters are present"; else fail "RKRGA filters are missing"; fi
     runtime_user="${APP_RUN_USER:-ubuntu}"
     if compose exec -T app su -s /bin/sh -c \
@@ -72,6 +73,13 @@ if [ "${failed}" -eq 0 ]; then
       pass "PHP-FPM user can access RKMPP/RGA/Mali devices"
     else
       fail "PHP-FPM user cannot access one or more RK3588 devices"
+    fi
+    if compose exec -T app su -s /bin/sh -c \
+      "ffmpeg -v error -init_hw_device rkmpp=rk -init_hw_device opencl=ocl@rk -f lavfi -i nullsrc=s=16x16 -frames:v 1 -f null -" \
+      "${runtime_user}"; then
+      pass "RKMPP to OpenCL interop initializes"
+    else
+      fail "RKMPP to OpenCL interop failed; HDR tone mapping will fall back to software"
     fi
   fi
 fi

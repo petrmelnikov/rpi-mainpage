@@ -57,6 +57,8 @@ Video Info и HLS используют одни и те же `/usr/local/bin/ffm
 5. Safari/iOS/iPadOS использует встроенный HLS; остальные браузеры — закреплённый `hls.js`.
 6. Если прямое воспроизведение было ошибочно признано доступным, событие `video.error` один раз переключает плеер на HLS.
 
+Если Safari сообщает поддержку HEVC и HDR, сервер сохраняет исходный HEVC Main10/HDR10, выставляет тег `hvc1` для Apple HLS и при необходимости преобразует только звук в AAC. Для SDR-клиента используется аппаратная цепочка `RKMPP decode → RKRGA P010 → OpenCL tone map → RKMPP H.264 encode`.
+
 Сервер выбирает один из режимов:
 
 - `remux` — видео и AAC копируются, меняется только контейнер;
@@ -128,6 +130,19 @@ find /media/.rpi-mainpage-data/transcodes -name state.json -exec grep -H -E '"st
 ```
 
 Затем откройте `worker-launch.log` соответствующей сессии. Если статус `failed`, проверьте `error`, `fallbackReason` и `ffmpeg.log`.
+
+Проверить реальную загрузку блоков RK3588 во время воспроизведения:
+
+```bash
+sudo sh -c 'echo 1000 > /proc/mpp_service/load_interval'
+sudo watch -n 1 cat /proc/mpp_service/load
+```
+
+В отдельном терминале:
+
+```bash
+sudo watch -n 1 cat /sys/kernel/debug/rkrga/load
+```
 
 ## Ограничения
 

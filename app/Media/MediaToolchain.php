@@ -57,7 +57,9 @@ final class MediaToolchain
         $cacheFile = rtrim((string)sys_get_temp_dir(), '/') . '/rpi-mainpage-media-capabilities.json';
         if (!$refresh && is_file($cacheFile) && filemtime($cacheFile) > time() - 300) {
             $cached = json_decode((string)file_get_contents($cacheFile), true);
-            if (is_array($cached) && ($cached['binary'] ?? '') === $this->ffmpeg) {
+            if (is_array($cached)
+                && ($cached['schemaVersion'] ?? 0) === 2
+                && ($cached['binary'] ?? '') === $this->ffmpeg) {
                 return $this->capabilities = $cached;
             }
         }
@@ -69,13 +71,21 @@ final class MediaToolchain
         $allOutput = static fn(array $result): string => $result['stdout'] . "\n" . $result['stderr'];
 
         $this->capabilities = [
+            'schemaVersion' => 2,
             'binary' => $this->ffmpeg,
             'checkedAt' => time(),
             'available' => $encoders['exitCode'] === 0,
             'h264Rkmpp' => str_contains($allOutput($encoders), 'h264_rkmpp'),
+            'h264RkmppDecoder' => str_contains($allOutput($decoders), 'h264_rkmpp'),
             'hevcRkmppDecoder' => str_contains($allOutput($decoders), 'hevc_rkmpp'),
+            'vp8RkmppDecoder' => str_contains($allOutput($decoders), 'vp8_rkmpp'),
+            'vp9RkmppDecoder' => str_contains($allOutput($decoders), 'vp9_rkmpp'),
+            'av1RkmppDecoder' => str_contains($allOutput($decoders), 'av1_rkmpp'),
+            'mpeg2RkmppDecoder' => str_contains($allOutput($decoders), 'mpeg2_rkmpp'),
+            'mpeg4RkmppDecoder' => str_contains($allOutput($decoders), 'mpeg4_rkmpp'),
             'rkmppHwaccel' => str_contains($allOutput($hwaccels), 'rkmpp'),
             'rkrga' => str_contains($allOutput($filters), 'scale_rkrga'),
+            'vppRkrga' => str_contains($allOutput($filters), 'vpp_rkrga'),
             'openclToneMap' => str_contains($allOutput($filters), 'tonemap_opencl'),
             'softwareToneMap' => str_contains($allOutput($filters), 'tonemap') && str_contains($allOutput($filters), 'zscale'),
             'devices' => [

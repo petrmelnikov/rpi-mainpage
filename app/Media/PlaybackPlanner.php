@@ -28,6 +28,13 @@ final class PlaybackPlanner
         $mime = $this->mime($container, $path);
         $codecs = array_values(array_filter([$this->videoCodecString($video), $this->audioCodecString($audio)]));
         $capabilities = $this->toolchain->capabilities();
+        $hardwareTranscode = $this->hardwareAvailable($capabilities, $videoCodec);
+        $hardwareToneMapping = $hardwareTranscode
+            && (bool)($capabilities['rkrga'] ?? false)
+            && (bool)($capabilities['vppRkrga'] ?? false)
+            && (bool)($capabilities['openclToneMap'] ?? false)
+            && (bool)($capabilities['devices']['rga'] ?? false)
+            && (bool)($capabilities['devices']['mali0'] ?? false);
 
         return [
             'duration' => max(0.0, (float)($format['duration'] ?? 0)),
@@ -54,10 +61,11 @@ final class PlaybackPlanner
                 'sampleRate' => (int)($audio['sample_rate'] ?? 0),
             ],
             'server' => [
-                'hardwareTranscode' => $this->hardwareAvailable($capabilities),
+                'hardwareTranscode' => $hardwareTranscode,
                 'rkrga' => (bool)($capabilities['rkrga'] ?? false),
-                'toneMapping' => (bool)(($capabilities['openclToneMap'] ?? false) || ($capabilities['softwareToneMap'] ?? false)),
-                'toneMappingMode' => ($capabilities['openclToneMap'] ?? false)
+                'hardwareToneMapping' => $hardwareToneMapping,
+                'toneMapping' => $hardwareToneMapping || (bool)($capabilities['softwareToneMap'] ?? false),
+                'toneMappingMode' => $hardwareToneMapping
                     ? 'opencl'
                     : (($capabilities['softwareToneMap'] ?? false) ? 'software' : null),
             ],
@@ -70,11 +78,13 @@ final class PlaybackPlanner
         $audio = (string)($inspection['audio']['codec'] ?? '');
         $hdr = (bool)($inspection['video']['hdr'] ?? false);
         $hevcSupported = (bool)($client['hevc'] ?? false);
+        $hdrSupported = (bool)($client['hdr'] ?? false);
         $videoCanCopy = $video === 'h264' || ($video === 'hevc' && $hevcSupported);
+        $hdrCanCopy = !$hdr || ($video === 'hevc' && $hevcSupported && $hdrSupported);
         // AAC is the only audio codec copied into the universal compatibility HLS.
         $audioCanCopy = in_array($audio, ['', 'aac'], true);
 
-        if ($hdr && !(bool)($inspection['server']['toneMapping'] ?? false)) {
+        if ($hdr && !$hdrCanCopy && !(bool)($inspection['server']['toneMapping'] ?? false)) {
             return [
                 'mode' => 'software-transcode',
                 'reason' => 'HDR source requires SDR conversion; hardware tone mapping is unavailable',
@@ -82,7 +92,7 @@ final class PlaybackPlanner
                 'warning' => 'HDR tone mapping is unavailable; colors may be inaccurate until OpenCL/zscale support is installed.',
             ];
         }
-        if ($hdr) {
+        if ($hdr && !$hdrCanCopy) {
             $opencl = ($inspection['server']['toneMappingMode'] ?? null) === 'opencl';
             return [
                 'mode' => $opencl && (bool)($inspection['server']['hardwareTranscode'] ?? false)
@@ -115,10 +125,26 @@ final class PlaybackPlanner
         return null;
     }
 
-    private function hardwareAvailable(array $capabilities): bool
+    private function hardwareAvailable(array $capabilities, string $videoCodec): bool
     {
-        return (bool)($capabilities['h264Rkmpp'] ?? false)
-            && (bool)($capabilities['devices']['mpp_service'] ?? false);
+        $decoderCapability = match ($videoCodec) {
+            'h264' => 'h264RkmppDecoder',
+            'hevc' => 'hevcRkmppDecoder',
+            'vp8' => 'vp8RkmppDecoder',
+            'vp9' => 'vp9RkmppDecoder',
+            'av1' => 'av1RkmppDecoder',
+            'mpeg2video' => 'mpeg2RkmppDecoder',
+            'mpeg4' => 'mpeg4RkmppDecoder',
+            default => null,
+        };
+
+        return $decoderCapability !== null
+            && (bool)($capabilities[$decoderCapability] ?? false)
+            && (bool)($capabilities['h264Rkmpp'] ?? false)
+            && (bool)($capabilities['rkmppHwaccel'] ?? false)
+            && (bool)($capabilities['rkrga'] ?? false)
+            && (bool)($capabilities['devices']['mpp_service'] ?? false)
+            && (bool)($capabilities['devices']['rga'] ?? false);
     }
 
     private function bitDepth(array $video): int

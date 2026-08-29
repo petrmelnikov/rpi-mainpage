@@ -724,8 +724,11 @@ document.addEventListener('DOMContentLoaded', function() {
             || (typeof MediaSource !== 'undefined'
                 && typeof MediaSource.isTypeSupported === 'function'
                 && hevcTypes.some((type) => MediaSource.isTypeSupported(type)));
+        const hdr = hevc && nativeHls && typeof window.matchMedia === 'function'
+            && (window.matchMedia('(dynamic-range: high)').matches
+                || window.matchMedia('(video-dynamic-range: high)').matches);
 
-        return { hevc, nativeHls };
+        return { hevc, hdr, nativeHls };
     }
 
     function destroyHlsInstance() {

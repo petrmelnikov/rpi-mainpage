@@ -164,19 +164,38 @@ function buildCommand(
     $capabilities = $toolchain->capabilities();
 
     $args = [$toolchain->ffmpegPath(), '-hide_banner', '-nostdin', '-loglevel', 'warning', '-y'];
-    if ($toneMap && $mode === 'hardware-transcode' && $toneMapMode === 'opencl') {
-        array_push($args, '-init_hw_device', 'opencl=ocl:0.0', '-filter_hw_device', 'ocl');
-    } elseif ($mode === 'hardware-transcode') {
-        array_push($args, '-hwaccel', 'rkmpp', '-hwaccel_output_format', 'drm_prime');
+    if ($mode === 'hardware-transcode') {
+        // Keep decoded frames on RKMPP/DRM surfaces. For HDR, RKRGA converts
+        // Main10 to P010, OpenCL tone-maps through DRM interop, then the frame
+        // is reverse-mapped to RKMPP for a zero-copy H.264 hardware encode.
+        array_push(
+            $args,
+            '-init_hw_device', 'rkmpp=rk',
+            '-hwaccel', 'rkmpp',
+            '-hwaccel_output_format', 'drm_prime',
+            '-noautorotate'
+        );
     }
     array_push($args, '-ss', number_format($offset, 3, '.', ''), '-i', $source, '-t', number_format($batchDuration, 3, '.', ''));
     array_push($args, '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn', '-map_metadata', '-1');
 
     if ($mode === 'remux' || $mode === 'audio-transcode') {
         array_push($args, '-c:v', 'copy');
+        if (($state['inspection']['video']['codec'] ?? '') === 'hevc') {
+            // Apple HLS expects the out-of-band HEVC sample entry.
+            array_push($args, '-tag:v', 'hvc1');
+        }
     } elseif ($mode === 'hardware-transcode') {
         if ($toneMap && $toneMapMode === 'opencl') {
-            array_push($args, '-vf', 'format=p010,hwupload,tonemap_opencl=tonemap=bt2390:format=nv12,hwdownload,format=nv12');
+            array_push(
+                $args,
+                '-vf',
+                'vpp_rkrga=format=p010,'
+                    . 'hwmap=derive_device=opencl,'
+                    . 'tonemap_opencl=tonemap=bt2390:format=nv12,'
+                    . 'hwmap=derive_device=rkmpp:reverse=1,'
+                    . 'format=drm_prime'
+            );
         } elseif ($capabilities['rkrga'] ?? false) {
             array_push($args, '-vf', 'scale_rkrga=format=nv12');
         }

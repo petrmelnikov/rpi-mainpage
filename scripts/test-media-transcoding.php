@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 use App\Media\MediaToolchain;
+use App\Media\PlaybackPlanner;
 use App\Media\TranscodeSessionManager;
 
 require_once dirname(__DIR__) . '/vendor/autoload.php';
@@ -15,6 +16,23 @@ function assertTrue(bool $condition, string $message): void
 
 $run = (new MediaToolchain('/does/not/matter', '/does/not/matter'))->run(['/usr/bin/printf', '%s', 'argv safe']);
 assertTrue($run['exitCode'] === 0 && $run['stdout'] === 'argv safe', 'argv-safe process execution failed');
+
+$planner = new PlaybackPlanner(new MediaToolchain('/does/not/matter', '/does/not/matter'));
+$hdrInspection = [
+    'video' => ['codec' => 'hevc', 'hdr' => true],
+    'audio' => ['codec' => 'ac3'],
+    'server' => [
+        'hardwareTranscode' => true,
+        'toneMapping' => true,
+        'toneMappingMode' => 'opencl',
+    ],
+];
+$hdrDirectDecision = $planner->chooseMode($hdrInspection, ['hevc' => true, 'hdr' => true]);
+assertTrue($hdrDirectDecision['mode'] === 'audio-transcode', 'HDR-capable HEVC client should preserve video and convert audio only');
+assertTrue($hdrDirectDecision['toneMap'] === false, 'HDR-capable HEVC client should not tone-map');
+$hdrSdrDecision = $planner->chooseMode($hdrInspection, ['hevc' => true, 'hdr' => false]);
+assertTrue($hdrSdrDecision['mode'] === 'hardware-transcode', 'SDR client should use hardware HDR tone mapping');
+assertTrue($hdrSdrDecision['toneMap'] === true, 'SDR client should tone-map HDR video');
 
 $root = sys_get_temp_dir() . '/rpi-mainpage-transcode-test-' . bin2hex(random_bytes(6));
 $id = str_repeat('a', 64);
