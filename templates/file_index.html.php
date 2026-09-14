@@ -286,10 +286,13 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                     </span>
                                     <?php if ($isSearchActive): ?>
                                         <?php
-                                        $resultDirectory = dirname($file['path']);
-                                        $resultDirectory = $resultDirectory === '.' ? 'Root' : $resultDirectory;
+                                        $resultDirPath = $file['isDir'] ? $file['path'] : dirname($file['path']);
+                                        if ($resultDirPath === '.' || $resultDirPath === '/') {
+                                            $resultDirPath = '';
+                                        }
+                                        $resultDirectory = $resultDirPath === '' ? 'Root' : $resultDirPath;
                                         ?>
-                                        <div class="small text-muted text-break">📂 <?= htmlspecialchars($resultDirectory) ?></div>
+                                        <div class="small text-muted text-break">📂 <a href="<?= htmlspecialchars($buildFileIndexUrl($resultDirPath, ['q' => null])) ?>" class="text-muted" title="Open directory"><?= htmlspecialchars($resultDirectory) ?></a></div>
                                     <?php endif; ?>
                                     <?php if (!$file['isDir']): ?>
                                         <?php
