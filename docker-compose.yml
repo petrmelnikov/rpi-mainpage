@@ -11,6 +11,7 @@ services:
       - .env.ssh
     environment:
       SHELL_OVER_SSH: "1"
+      SSD_SMARTCTL_DEVICE_TYPES: "${SSD_SMARTCTL_DEVICE_TYPES:-}"
       # Keep app state on host-mounted storage so data survives container rebuilds.
       UPLOAD_BASE_DIR: /media/.rpi-mainpage-data
       MEDIA_FFMPEG_BIN: /usr/local/bin/ffmpeg
