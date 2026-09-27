@@ -1305,6 +1305,118 @@ document.addEventListener('DOMContentLoaded', function() {
         }, true);
     }
     
+    // RangeTouch (inside Plyr) seeks on touchstart, before a system swipe can
+    // cancel the touch. Own timeline touches and commit only on a valid release.
+    function setupProgressTouchGestures() {
+        let gesture = null;
+        const touchOptions = { capture: true, passive: false };
+
+        function seekInput(target) {
+            return target && target.closest ? target.closest('input[data-plyr="seek"]') : null;
+        }
+
+        function blockTouch(e) {
+            if (e.cancelable) e.preventDefault();
+            e.stopImmediatePropagation();
+        }
+
+        function updatePreview(input, fraction) {
+            input.value = String(fraction * 100);
+            input.style.setProperty('--value', (fraction * 100) + '%');
+        }
+
+        function cancelTouchSeek() {
+            if (gesture && gesture.input.isConnected && player && player.duration > 0) {
+                updatePreview(gesture.input, player.currentTime / player.duration);
+            }
+            gesture = null;
+        }
+
+        function movedVertically(touch) {
+            const dx = Math.abs(touch.clientX - gesture.startX);
+            const dy = Math.abs(touch.clientY - gesture.startY);
+            return dy > MOVE_CANCEL_THRESHOLD && dy >= dx;
+        }
+
+        function seekFraction(input, clientX) {
+            const rect = input.getBoundingClientRect();
+            return rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : null;
+        }
+
+        // Delegate from the modal because changing source recreates Plyr's controls.
+        mediaModalElement.addEventListener('touchstart', function (e) {
+            const input = seekInput(e.target);
+            if (!input) return;
+            blockTouch(e);
+            cancelTouchSeek();
+            if (e.touches.length !== 1 || input.disabled || !player) return;
+            const touch = e.changedTouches[0];
+            gesture = {
+                id: touch.identifier, input, media: player.media,
+                startX: touch.clientX, startY: touch.clientY
+            };
+        }, touchOptions);
+
+        mediaModalElement.addEventListener('touchmove', function (e) {
+            if (!seekInput(e.target)) return;
+            // Also block orphaned events after blur/cancel so RangeTouch cannot seek.
+            blockTouch(e);
+            if (!gesture) return;
+            const touch = Array.from(e.changedTouches).find(t => t.identifier === gesture.id);
+            if (!touch) return;
+            if (e.touches.length !== 1 || movedVertically(touch)) {
+                cancelTouchSeek();
+                return;
+            }
+            if (Math.abs(touch.clientX - gesture.startX) > MOVE_CANCEL_THRESHOLD) {
+                const fraction = seekFraction(gesture.input, touch.clientX);
+                if (fraction !== null) updatePreview(gesture.input, fraction);
+            }
+        }, touchOptions);
+
+        mediaModalElement.addEventListener('touchend', function (e) {
+            if (!seekInput(e.target)) return;
+            blockTouch(e);
+            if (!gesture) return;
+            const touch = Array.from(e.changedTouches).find(t => t.identifier === gesture.id);
+            if (!touch) return;
+            const input = gesture.input;
+            const valid = e.touches.length === 0 && !movedVertically(touch)
+                && input.isConnected && !input.disabled && player
+                && player.media === gesture.media && player.elements.inputs.seek === input;
+            cancelTouchSeek();
+            if (!valid || !Number.isFinite(player.duration) || player.duration <= 0) return;
+            const fraction = seekFraction(input, touch.clientX);
+            if (fraction === null) return;
+            player.currentTime = fraction * player.duration;
+            updatePreview(input, fraction);
+        }, touchOptions);
+
+        mediaModalElement.addEventListener('touchcancel', function (e) {
+            if (seekInput(e.target)) blockTouch(e);
+            cancelTouchSeek();
+        }, touchOptions);
+        mediaModalElement.addEventListener('pointerdown', function (e) {
+            // Stop the native range default as well as RangeTouch's touch handlers.
+            if (e.pointerType === 'touch' && seekInput(e.target) && e.cancelable) e.preventDefault();
+        }, true);
+        document.addEventListener('touchstart', function (e) {
+            // The second finger may land outside the player entirely.
+            if (e.touches.length > 1) cancelTouchSeek();
+        }, true);
+        window.addEventListener('pointercancel', function (e) {
+            if (e.pointerType === 'touch') cancelTouchSeek();
+        }, true);
+        window.addEventListener('blur', cancelTouchSeek);
+        window.addEventListener('pagehide', cancelTouchSeek);
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) cancelTouchSeek();
+        });
+        mediaModalElement.addEventListener('hidden.bs.modal', cancelTouchSeek);
+        mediaModalElement.addEventListener('emptied', cancelTouchSeek, true);
+        mediaModalElement.addEventListener('loadstart', cancelTouchSeek, true);
+    }
+
     // Initialize Plyr ONCE
     function initPlyr() {
         if (player || typeof Plyr === 'undefined') return;
@@ -1343,6 +1455,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize on load
     initPlyr();
+    setupProgressTouchGestures();
     void loadMediaProgressForFileList();
         
     // Stop media and save final progress when modal closes
