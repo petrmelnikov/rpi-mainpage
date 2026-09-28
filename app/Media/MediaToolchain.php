@@ -30,22 +30,235 @@ final class MediaToolchain
 
     public function probe(string $path): array
     {
-        $result = $this->run([
-            $this->ffprobe,
-            '-v', 'error',
-            '-print_format', 'json',
-            '-show_format',
-            '-show_streams',
-            $path,
-        ], 45);
-
-        $data = json_decode($result['stdout'], true);
-        if ($result['exitCode'] !== 0 || !is_array($data) || !is_array($data['streams'] ?? null)) {
-            $detail = trim(substr($result['stderr'] ?: $result['stdout'], 0, 500));
-            throw new \RuntimeException('ffprobe failed' . ($detail !== '' ? ': ' . $detail : ''));
+        $cacheFile = $this->probeCacheFile($path);
+        if ($cacheFile !== null) {
+            $cached = $this->readProbeCache($cacheFile, $path);
+            if ($cached !== null) {
+                return $cached;
+            }
         }
 
-        return $data;
+        // Per-entry lock so concurrent requests for the same source wait for
+        // the in-flight probe instead of running ffprobe twice. Best effort:
+        // a lock failure falls back to an uncached probe.
+        $lock = $cacheFile !== null ? $this->lockProbeEntry($cacheFile) : null;
+        if ($lock !== null) {
+            // Double-checked after acquiring the lock; a concurrent probe may
+            // have filled the cache while this request was waiting.
+            $cached = $this->readProbeCache($cacheFile, $path);
+            if ($cached !== null) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+                return $cached;
+            }
+        }
+
+        try {
+            $sourceBefore = $this->probeSourceFingerprint($path);
+            $binaryBefore = $this->ffprobeFingerprint();
+            $result = $this->run([
+                $this->ffprobe,
+                '-v', 'error',
+                '-print_format', 'json',
+                '-show_format',
+                '-show_streams',
+                $path,
+            ], 45);
+
+            $data = json_decode($result['stdout'], true);
+            if ($result['exitCode'] !== 0 || !is_array($data) || !is_array($data['streams'] ?? null)) {
+                if ($cacheFile !== null) {
+                    @unlink($cacheFile);
+                }
+                $detail = trim(substr($result['stderr'] ?: $result['stdout'], 0, 500));
+                throw new \RuntimeException('ffprobe failed' . ($detail !== '' ? ': ' . $detail : ''));
+            }
+
+            if ($cacheFile !== null && $sourceBefore !== null
+                && $sourceBefore === $this->probeSourceFingerprint($path)
+                && $binaryBefore === $this->ffprobeFingerprint()) {
+                $this->writeProbeCache($cacheFile, $sourceBefore, $binaryBefore, $data);
+            }
+
+            return $data;
+        } finally {
+            if ($lock !== null) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+        }
+    }
+
+    private function probeCacheFile(string $path): ?string
+    {
+        try {
+            $dir = trim((string)getenv('MEDIA_FFPROBE_CACHE_DIR'));
+            if ($dir === '') {
+                $dir = rtrim((string)sys_get_temp_dir(), '/') . '/rpi-mainpage-ffprobe-cache';
+            } else {
+                $dir = rtrim($dir, '/');
+            }
+            if ($dir === '') {
+                return null;
+            }
+            if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+                return null;
+            }
+            $resolved = @realpath($path);
+            $identity = (is_string($resolved) && $resolved !== '') ? $resolved : $path;
+            // Hashed filename: never exposes the source path.
+            return $dir . '/' . hash('sha256', $identity) . '.json';
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function probeCacheIdentity(string $path): string
+    {
+        $resolved = @realpath($path);
+        return (is_string($resolved) && $resolved !== '') ? $resolved : $path;
+    }
+
+    private function probeCacheTtl(): int
+    {
+        $ttl = (int)((string)getenv('MEDIA_FFPROBE_CACHE_TTL_SECONDS') ?: 86400);
+        if ($ttl <= 0) {
+            $ttl = 86400;
+        }
+        return min($ttl, 7 * 86400);
+    }
+
+    private function ffprobeFingerprint(): string
+    {
+        // Filesystem identity of the ffprobe binary. Replacing/upgrading the
+        // binary changes mtime/size, which invalidates cached entries without
+        // spending an extra ffprobe -version process on every cache hit.
+        $binary = $this->ffprobe;
+        if (!str_contains($binary, '/')) {
+            foreach (explode(PATH_SEPARATOR, (string)getenv('PATH')) as $dir) {
+                $candidate = $dir . '/' . $binary;
+                if (is_executable($candidate)) { $binary = $candidate; break; }
+            }
+        }
+        return $binary . '|' . json_encode($this->probeSourceFingerprint($binary));
+    }
+
+    private function probeSourceFingerprint(string $path): ?array
+    {
+        clearstatcache(true, $path);
+        $stat = @stat($path);
+        if ($stat === false) return null;
+        return [
+            'path' => $this->probeCacheIdentity($path),
+            'dev' => $stat['dev'], 'ino' => $stat['ino'],
+            'size' => $stat['size'], 'mtime' => $stat['mtime'], 'ctime' => $stat['ctime'],
+        ];
+    }
+
+    /** @return resource|null */
+    private function lockProbeEntry(string $cacheFile)
+    {
+        try {
+            $lock = @fopen($cacheFile . '.lock', 'c+');
+            if ($lock === false) {
+                return null;
+            }
+            if (!@flock($lock, LOCK_EX)) {
+                @fclose($lock);
+                return null;
+            }
+            return $lock;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function readProbeCache(string $cacheFile, string $path): ?array
+    {
+        try {
+            if (!@is_file($cacheFile)) {
+                return null;
+            }
+            $raw = @file_get_contents($cacheFile);
+            if (!is_string($raw) || $raw === '') {
+                return null;
+            }
+            $envelope = json_decode($raw, true);
+            if (!is_array($envelope) || ($envelope['schemaVersion'] ?? 0) !== 2) {
+                return null;
+            }
+            $data = $envelope['data'] ?? null;
+            if (!is_array($data) || !is_array($data['streams'] ?? null)) {
+                return null;
+            }
+            if (($envelope['binary'] ?? '') !== $this->ffprobeFingerprint()) {
+                return null;
+            }
+            $source = $this->probeSourceFingerprint($path);
+            if ($source === null || ($envelope['source'] ?? null) !== $source) {
+                return null;
+            }
+            $checkedAt = (int)($envelope['checkedAt'] ?? 0);
+            if ($checkedAt <= 0 || time() - $checkedAt > $this->probeCacheTtl()) {
+                return null;
+            }
+            return $data;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function writeProbeCache(string $cacheFile, array $source, string $binary, array $data): void
+    {
+        try {
+            $envelope = [
+                'schemaVersion' => 2,
+                'source' => $source,
+                'binary' => $binary,
+                'checkedAt' => time(),
+                'data' => $data,
+            ];
+            $json = json_encode($envelope);
+            if ($json === false) {
+                return;
+            }
+            $tmp = $cacheFile . '.' . bin2hex(random_bytes(6)) . '.tmp';
+            if (@file_put_contents($tmp, $json, LOCK_EX) === false) {
+                @unlink($tmp);
+                return;
+            }
+            @chmod($tmp, 0600);
+            if (!@rename($tmp, $cacheFile)) {
+                @unlink($tmp);
+                return;
+            }
+            @chmod($cacheFile, 0600);
+            $this->pruneProbeCache(dirname($cacheFile));
+        } catch (\Throwable) {
+            // Cache failures must never break playback.
+        }
+    }
+
+    private function pruneProbeCache(string $dir): void
+    {
+        try {
+            if (@random_int(1, 50) !== 1) {
+                return;
+            }
+            $ttl = $this->probeCacheTtl();
+            $now = time();
+            foreach (@glob($dir . '/*.json') ?: [] as $file) {
+                if (!is_string($file) || @is_link($file)) {
+                    continue;
+                }
+                $mtime = @filemtime($file);
+                if ($mtime !== false && $now - $mtime > $ttl) {
+                    @unlink($file);
+                }
+            }
+        } catch (\Throwable) {
+            // Best-effort lifetime bound; never breaks playback.
+        }
     }
 
     public function capabilities(bool $refresh = false): array

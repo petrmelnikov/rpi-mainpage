@@ -20,7 +20,7 @@ final class TranscodeSessionManager
         $this->maxSessions = max(1, (int)((string)getenv('MEDIA_MAX_SESSIONS') ?: 3));
     }
 
-    public function create(string $sourcePath, string $relativePath, array $inspection, array $decision): array
+    public function create(string $sourcePath, string $relativePath, array $inspection, array $decision, float $startTime = 0, ?array $segmentStarts = null): array
     {
         $this->ensureRoot();
         $rootLock = fopen($this->root . '/sessions.lock', 'c+');
@@ -44,7 +44,7 @@ final class TranscodeSessionManager
 
             $now = time();
             $state = [
-                'version' => 1,
+                'version' => 2,
                 'id' => $id,
                 'sourcePath' => $sourcePath,
                 'relativePath' => $relativePath,
@@ -58,14 +58,20 @@ final class TranscodeSessionManager
                 'lastAccessAt' => $now,
                 'workerPid' => null,
                 'ffmpegPid' => null,
-                'requests' => [0],
+                'requests' => [],
+                'generation' => 0,
+                'currentGeneration' => null,
+                'seekSequence' => 0,
                 'currentSegment' => null,
                 'completedSegments' => [],
                 'stopRequested' => false,
                 'error' => null,
                 'fallbackReason' => null,
                 'segmentDuration' => $this->segmentDuration,
+                'segmentStarts' => $segmentStarts,
+                'startTime' => max(0.0, min($startTime, max(0.0, (float)($inspection['duration'] ?? 0) - 0.001))),
             ];
+            $state['requests'] = [SegmentTimeline::segmentAt($state, $state['startTime'])];
             $this->writeStateFile($dir, $state);
         } finally {
             flock($rootLock, LOCK_UN);
@@ -117,21 +123,58 @@ final class TranscodeSessionManager
             if ($current['stopRequested'] ?? false) {
                 throw new \RuntimeException('Transcode session has stopped');
             }
-            $segmentDuration = max(2, (int)($current['segmentDuration'] ?? 4));
-            $segmentCount = max(1, (int)ceil((float)($current['duration'] ?? 0) / $segmentDuration));
+            $segmentCount = count(SegmentTimeline::starts($current));
             if ($segment < 0 || $segment >= $segmentCount) {
                 throw new \InvalidArgumentException('HLS segment is outside the media duration');
             }
-            $requests = is_array($current['requests'] ?? null) ? $current['requests'] : [];
-            if (!in_array($segment, $requests, true)) {
-                $requests[] = $segment;
-            }
-            sort($requests, SORT_NUMERIC);
-            $current['requests'] = $requests;
             $current['lastAccessAt'] = time();
+            if (in_array($segment, $current['completedSegments'] ?? [], true)) return $current;
+            $requests = is_array($current['requests'] ?? null) ? $current['requests'] : [];
+            $active = $current['currentSegment'] ?? null;
+            $sameGeneration = ($current['currentGeneration'] ?? null) === ($current['generation'] ?? 0);
+            if ($active !== null && $sameGeneration && $segment >= $active && $segment < $active + SegmentTimeline::batchSize($current)) {
+                return $current;
+            }
+            if (!in_array($segment, $requests, true)) {
+                $anchor = $active !== null && $sameGeneration ? $active : ($requests[0] ?? null);
+                // Native HLS may prefetch neighboring fragments concurrently.
+                // Only a distant jump implies seek; never cancel N for N+1.
+                if ($anchor !== null && ($segment < $anchor || $segment >= $anchor + max(4, SegmentTimeline::batchSize($current)))) {
+                    $current['requests'] = [$segment];
+                    $current['generation'] = (int)($current['generation'] ?? 0) + 1;
+                } else {
+                    $requests[] = $segment;
+                    $current['requests'] = $requests;
+                }
+            }
             if (($current['status'] ?? '') !== 'transcoding') {
                 $current['status'] = 'queued';
             }
+            return $current;
+        });
+        $this->spawnWorker($id);
+        return $state;
+    }
+
+    public function seek(string $id, float $time, int $sequence): array
+    {
+        $state = $this->update($id, static function (array $current) use ($time, $sequence): array {
+            if ($current['stopRequested'] ?? false) throw new \RuntimeException('Transcode session has stopped');
+            if ($sequence <= (int)($current['seekSequence'] ?? 0)) return $current;
+            $current['seekSequence'] = $sequence;
+            $current['lastAccessAt'] = time();
+            $segment = SegmentTimeline::segmentAt($current, max(0.0, $time));
+            $active = $current['currentSegment'] ?? null;
+            if (($current['currentGeneration'] ?? null) === ($current['generation'] ?? 0)
+                && $active !== null && $segment >= $active && $segment < $active + SegmentTimeline::batchSize($current)) {
+                $completed = $current['completedSegments'] ?? [];
+                $nextUnfinished = $active;
+                while (in_array($nextUnfinished, $completed, true)) $nextUnfinished++;
+                if (in_array($segment, $completed, true) || $segment === $nextUnfinished) return $current;
+            }
+            if (($current['requests'][0] ?? null) === $segment) return $current;
+            $current['generation'] = (int)($current['generation'] ?? 0) + 1;
+            $current['requests'] = in_array($segment, $current['completedSegments'] ?? [], true) ? [] : [$segment];
             return $current;
         });
         $this->spawnWorker($id);
@@ -144,10 +187,10 @@ final class TranscodeSessionManager
         $this->update($id, static function (array $current) use (&$next): array {
             $requests = is_array($current['requests'] ?? null) ? $current['requests'] : [];
             if ($requests !== []) {
-                sort($requests, SORT_NUMERIC);
                 $next = max(0, (int)array_shift($requests));
                 $current['requests'] = $requests;
                 $current['currentSegment'] = $next;
+                $current['currentGeneration'] = (int)($current['generation'] ?? 0);
                 $current['status'] = 'transcoding';
                 $current['error'] = null;
             }
@@ -184,23 +227,28 @@ final class TranscodeSessionManager
     {
         $state = $this->get($id);
         $duration = max(0.001, (float)($state['duration'] ?? 0));
-        $segmentDuration = max(2, (int)($state['segmentDuration'] ?? $this->segmentDuration));
-        $count = max(1, (int)ceil($duration / $segmentDuration));
+        $starts = SegmentTimeline::starts($state);
+        $count = count($starts);
+        $targetDuration = 1;
+        foreach ($starts as $i => $start) $targetDuration = max($targetDuration, (int)ceil(($starts[$i + 1] ?? $duration) - $start));
         $lines = [
             '#EXTM3U',
             '#EXT-X-VERSION:7',
             '#EXT-X-PLAYLIST-TYPE:VOD',
-            '#EXT-X-TARGETDURATION:' . $segmentDuration,
+            '#EXT-X-TARGETDURATION:' . $targetDuration,
             '#EXT-X-MEDIA-SEQUENCE:0',
             '#EXT-X-INDEPENDENT-SEGMENTS',
         ];
+        if (($state['startTime'] ?? 0) > 0) {
+            $lines[] = '#EXT-X-START:TIME-OFFSET=' . number_format((float)$state['startTime'], 6, '.', '') . ',PRECISE=YES';
+        }
         for ($i = 0; $i < $count; $i++) {
             $name = str_pad((string)$i, 6, '0', STR_PAD_LEFT);
-            $length = min((float)$segmentDuration, max(0.001, $duration - ($i * $segmentDuration)));
+            $length = max(0.001, ($starts[$i + 1] ?? $duration) - $starts[$i]);
             // Each independently generated batch has its own init fragment/timeline.
             $lines[] = '#EXT-X-DISCONTINUITY';
             $lines[] = '#EXT-X-MAP:URI="/file-index/transcode/segment?sessionId=' . rawurlencode($id) . '&name=init-' . $name . '.mp4"';
-            $lines[] = '#EXTINF:' . number_format($length, 3, '.', '') . ',';
+            $lines[] = '#EXTINF:' . number_format($length, 6, '.', '') . ',';
             $lines[] = '/file-index/transcode/segment?sessionId=' . rawurlencode($id) . '&name=segment-' . $name . '.m4s';
         }
         $lines[] = '#EXT-X-ENDLIST';

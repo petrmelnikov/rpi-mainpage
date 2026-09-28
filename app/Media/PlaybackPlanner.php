@@ -38,6 +38,7 @@ final class PlaybackPlanner
 
         return [
             'duration' => max(0.0, (float)($format['duration'] ?? 0)),
+            'startTime' => (float)($format['start_time'] ?? 0),
             'container' => $container,
             'source' => [
                 'mime' => $mime,
@@ -79,8 +80,9 @@ final class PlaybackPlanner
         $hdr = (bool)($inspection['video']['hdr'] ?? false);
         $hevcSupported = (bool)($client['hevc'] ?? false);
         $hdrSupported = (bool)($client['hdr'] ?? false);
-        $videoCanCopy = $video === 'h264' || ($video === 'hevc' && $hevcSupported);
-        $hdrCanCopy = !$hdr || ($video === 'hevc' && $hevcSupported && $hdrSupported);
+        $forceVideoTranscode = (bool)($client['forceVideoTranscode'] ?? false);
+        $videoCanCopy = !$forceVideoTranscode && ($video === 'h264' || ($video === 'hevc' && $hevcSupported));
+        $hdrCanCopy = !$hdr || (!$forceVideoTranscode && $video === 'hevc' && $hevcSupported && $hdrSupported);
         // AAC is the only audio codec copied into the universal compatibility HLS.
         $audioCanCopy = in_array($audio, ['', 'aac'], true);
 
@@ -159,8 +161,14 @@ final class PlaybackPlanner
     private function mime(string $format, string $path): string
     {
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        if (str_contains($format, 'matroska') || $ext === 'mkv') return 'video/x-matroska';
-        if (str_contains($format, 'webm') || $ext === 'webm') return 'video/webm';
+        // Extension wins: ffprobe reports 'matroska,webm' for both .mkv and
+        // .webm, so a format-only check mislabels WebM as Matroska.
+        if ($ext === 'webm') return 'video/webm';
+        if ($ext === 'mkv') return 'video/x-matroska';
+        if ($ext === 'ogg' || $ext === 'ogv') return 'video/ogg';
+        if (str_contains($format, 'webm')) return 'video/webm';
+        if (str_contains($format, 'matroska')) return 'video/x-matroska';
+        if (str_contains($format, 'ogg') || str_contains($format, 'ogv')) return 'video/ogg';
         if (str_contains($format, 'avi') || $ext === 'avi') return 'video/x-msvideo';
         if ($ext === 'mov') return 'video/quicktime';
         return 'video/mp4';

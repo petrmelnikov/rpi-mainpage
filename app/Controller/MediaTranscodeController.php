@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\FileIndexManager;
 use App\Media\MediaToolchain;
 use App\Media\PlaybackPlanner;
+use App\Media\SegmentTimeline;
 use App\Media\TranscodeSessionManager;
 use App\Router;
 use App\Support\PathGuard;
@@ -29,6 +30,7 @@ final class MediaTranscodeController
         $router->addRoute('GET', '/file-index/transcode/playlist', [$this, 'playlist']);
         $router->addRoute('GET', '/file-index/transcode/segment', [$this, 'segment']);
         $router->addRoute('POST', '/file-index/transcode/stop', [$this, 'stop']);
+        $router->addRoute('POST', '/file-index/transcode/seek', [$this, 'seek']);
         $router->addRoute('GET', '/file-index/transcode/status', [$this, 'status']);
     }
 
@@ -56,13 +58,28 @@ final class MediaTranscodeController
                 throw new \RuntimeException('Unable to determine video duration for HLS playback');
             }
             $decision = $this->planner->chooseMode($inspection, $client);
-            $state = $this->sessions->create($fullPath, $relativePath, $inspection, $decision);
+            $segmentStarts = null;
+            if (in_array($decision['mode'], ['remux', 'audio-transcode'], true)) {
+                $target = max(2, min(10, (int)((string)getenv('MEDIA_HLS_SEGMENT_SECONDS') ?: 4)));
+                $segmentStarts = SegmentTimeline::copyStarts($fullPath, $inspection, $target);
+                if ($segmentStarts === null) {
+                    // A guessed stream-copy grid advertises seek positions that
+                    // FFmpeg cannot produce. Encode an aligned grid only when
+                    // the container does not supply a usable random-access index.
+                    $decision = $this->planner->chooseMode($inspection, array_merge($client, ['forceVideoTranscode' => true]));
+                    $decision['reason'] = 'No usable stream-copy seek index; ' . $decision['reason'];
+                }
+            }
+            $startTime = $this->finiteTime($body['startTime'] ?? 0);
+            $state = $this->sessions->create($fullPath, $relativePath, $inspection, $decision, $startTime, $segmentStarts);
             $id = (string)$state['id'];
             $this->json([
                 'ok' => true,
                 'sessionId' => $id,
                 'playlistUrl' => '/file-index/transcode/playlist?sessionId=' . rawurlencode($id),
                 'mode' => $state['mode'],
+                'startTime' => $state['startTime'],
+                'segmentWaitSeconds' => max(5, (int)((string)getenv('MEDIA_SEGMENT_WAIT_SECONDS') ?: 30)),
                 'reason' => $decision['reason'] ?? '',
                 'warning' => $decision['warning'] ?? null,
             ], 201);
@@ -96,17 +113,22 @@ final class MediaTranscodeController
             $id = (string)($_GET['sessionId'] ?? '');
             $name = (string)($_GET['name'] ?? '');
             $path = $this->sessions->artifactPath($id, $name);
+            $state = $this->sessions->get($id);
+            if ($state['stopRequested'] ?? false) throw new \RuntimeException('Transcode session has stopped');
             if (!is_file($path) && preg_match('/^(?:segment|init)-(\d{6})\./', $name, $match)) {
-                $this->sessions->requestSegment($id, (int)$match[1]);
+                $state = $this->sessions->requestSegment($id, (int)$match[1]);
             }
+            $generation = (int)($state['generation'] ?? 0);
 
             $waitSeconds = max(5, (int)((string)getenv('MEDIA_SEGMENT_WAIT_SECONDS') ?: 30));
             if (function_exists('set_time_limit')) @set_time_limit($waitSeconds + 5);
             $deadline = microtime(true) + $waitSeconds;
             while (!is_file($path) && microtime(true) < $deadline) {
                 $state = $this->sessions->get($id, false);
-                if (($state['stopRequested'] ?? false) || (($state['status'] ?? '') === 'failed' && empty($state['requests']))) break;
+                if (($state['stopRequested'] ?? false) || (int)($state['generation'] ?? 0) !== $generation
+                    || (($state['status'] ?? '') === 'failed' && empty($state['requests']))) break;
                 usleep(100000);
+                clearstatcache(true, $path);
             }
             if (!is_file($path)) {
                 $state = $this->sessions->get($id, false);
@@ -135,6 +157,29 @@ final class MediaTranscodeController
         } catch (\RuntimeException $e) {
             $this->json(['ok' => false, 'error' => $e->getMessage()], 404);
         }
+    }
+
+    public function seek(): string
+    {
+        try {
+            $body = $this->jsonBody();
+            $sequence = $body['sequence'] ?? null;
+            if (!is_int($sequence) || $sequence < 1) throw new \InvalidArgumentException('Invalid seek sequence');
+            $state = $this->sessions->seek((string)($body['sessionId'] ?? ''), $this->finiteTime($body['time'] ?? null), $sequence);
+            $this->json(['ok' => true, 'sequence' => $state['seekSequence']]);
+        } catch (\InvalidArgumentException $e) {
+            $this->json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (\RuntimeException $e) {
+            $this->json(['ok' => false, 'error' => $e->getMessage()], 404);
+        }
+    }
+
+    private function finiteTime(mixed $time): float
+    {
+        if (!is_numeric($time) || !is_finite((float)$time) || (float)$time < 0) {
+            throw new \InvalidArgumentException('Invalid playback time');
+        }
+        return (float)$time;
     }
 
     public function status(): string

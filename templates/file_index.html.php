@@ -648,6 +648,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let hlsInstance = null;
     let playbackRequestId = 0;
     let directFallbackAttempted = false;
+    let playbackAbortController = null;
+    let seekSequence = 0;
+    let seekNotifyTimer = null;
     let holdSpeedRestoreValue = 1;
     let holdSpeedTimeout = null;
     let holdToSpeedActive = false;
@@ -774,6 +777,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function releaseCurrentPlayback(useBeacon = false) {
         playbackRequestId++;
+        if (playbackAbortController) playbackAbortController.abort();
+        playbackAbortController = null;
+        clearTimeout(seekNotifyTimer);
         currentPlaybackMode = 'idle';
         destroyHlsInstance();
 
@@ -785,6 +791,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function getPlaybackPlan(path) {
         const response = await fetch('/file-index/playback-plan?path=' + encodeURIComponent(path), {
             method: 'GET',
+            signal: playbackAbortController ? playbackAbortController.signal : undefined,
             headers: { 'Accept': 'application/json' }
         });
         const payload = await response.json().catch(() => null);
@@ -820,7 +827,10 @@ document.addEventListener('DOMContentLoaded', function() {
         destroyHlsInstance();
         const previousSessionId = activeTranscodeSessionId;
         activeTranscodeSessionId = null;
-        await stopTranscodeSession(previousSessionId);
+        void stopTranscodeSession(previousSessionId);
+        const savedTime = await (currentMediaProgressRequest || getSavedMediaTime(path));
+        if (requestId !== playbackRequestId || currentMediaPath !== path) return;
+        const startTime = Number.isFinite(savedTime) ? Math.max(0, savedTime) : 0;
 
         const response = await fetch('/file-index/transcode/start', {
             method: 'POST',
@@ -830,7 +840,8 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({
                 path,
-                client: capabilities
+                client: capabilities,
+                startTime
             })
         });
         const payload = await response.json().catch(() => null);
@@ -851,6 +862,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         activeTranscodeSessionId = sessionId;
+        seekSequence = 0;
         currentPlaybackMode = 'hls';
         if (payload.warning) {
             showPlaybackError(String(payload.warning), 'warning');
@@ -865,14 +877,27 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        mediaElement.pause();
-        mediaElement.removeAttribute('src');
-        mediaElement.querySelectorAll('source').forEach((source) => source.remove());
-        mediaElement.load();
+        if (player.type === 'audio') {
+            player.source = { type: 'video', title: mediaName, sources: [{ src: playlistUrl, type: HLS_MIME_TYPE }] };
+        }
+        // Plyr replaces its media node whenever player.source changes.
+        const playbackMedia = player.media || mediaElement;
+        playbackMedia.pause();
+        playbackMedia.removeAttribute('src');
+        playbackMedia.querySelectorAll('source').forEach((source) => source.remove());
+        playbackMedia.load();
 
         const instance = new Hls({
             enableWorker: true,
-            backBufferLength: 90
+            backBufferLength: 90,
+            startPosition: Number(payload.startTime) || 0,
+            fragLoadPolicy: {
+                ...Hls.DefaultConfig.fragLoadPolicy,
+                default: {
+                    ...Hls.DefaultConfig.fragLoadPolicy.default,
+                    maxTimeToFirstByteMs: (Number(payload.segmentWaitSeconds) || 30) * 1000 + 5000
+                }
+            }
         });
         hlsInstance = instance;
         instance.on(Hls.Events.ERROR, function(_event, data) {
@@ -886,7 +911,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showPlaybackError('HLS playback failed. Please try the file again.');
         });
         instance.loadSource(playlistUrl);
-        instance.attachMedia(mediaElement);
+        instance.attachMedia(playbackMedia);
     }
 
     async function selectVideoSource(path, mediaName, requestId) {
@@ -1481,7 +1506,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // canPlayType() is deliberately conservative but not infallible. If a source that
     // looked playable still fails at runtime, retry it through the transcoder once.
-    mediaElement.addEventListener('error', function() {
+    mediaModalElement.addEventListener('error', function(event) {
+        if (!player || event.target !== player.media) return;
         if (currentMediaType === 'video' && currentPlaybackMode === 'hls') {
             const failedSessionId = activeTranscodeSessionId;
             activeTranscodeSessionId = null;
@@ -1515,11 +1541,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 showPlaybackError(error && error.message ? error.message : 'Unable to play this video.');
             }
         });
-    });
+    }, true);
 
     window.addEventListener('pagehide', function() {
         void releaseCurrentPlayback(true);
     });
+
+    mediaModalElement.addEventListener('seeking', function(event) {
+        if (!player || event.target !== player.media) return;
+        if (currentPlaybackMode !== 'hls' || !activeTranscodeSessionId) return;
+        clearTimeout(seekNotifyTimer);
+        const sessionId = activeTranscodeSessionId;
+        const sequence = ++seekSequence;
+        seekNotifyTimer = setTimeout(() => {
+            if (sessionId !== activeTranscodeSessionId) return;
+            void fetch('/file-index/transcode/seek', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId, sequence, time: Number(player.currentTime) || 0 })
+            }).catch((error) => console.warn('Unable to prioritize seek', error));
+        }, 100);
+    }, true);
     
     // Handle local video and audio play button clicks
     document.addEventListener('click', function(e) {
@@ -1546,6 +1588,7 @@ document.addEventListener('DOMContentLoaded', function() {
         directFallbackAttempted = false;
         showPlaybackError('');
         const requestId = ++playbackRequestId;
+        playbackAbortController = new AbortController();
 
         currentMediaProgressRequest = getSavedMediaTime(currentMediaPath);
 
