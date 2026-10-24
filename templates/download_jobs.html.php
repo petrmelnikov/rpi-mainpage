@@ -38,7 +38,7 @@
                                 <span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($status) ?></span>
                             </td>
                             <td><?= date('Y-m-d H:i:s', (int)($job['createdAt'] ?? 0)) ?></td>
-                            <td><code><?= htmlspecialchars((string)($job['targetPath'] ?? '')) ?></code></td>
+                            <td><code class="file-name-wrap"><?= htmlspecialchars((string)($job['targetPath'] ?? '')) ?></code></td>
                             <td style="max-width: 520px; word-break: break-all;"><?= htmlspecialchars((string)($job['url'] ?? '')) ?></td>
                             <td><?= htmlspecialchars((string)($job['tool'] ?? '')) ?> <?= htmlspecialchars((string)($job['mode'] ?? '')) ?></td>
                             <td style="max-width: 420px; word-break: break-word;"><?= htmlspecialchars((string)($job['error'] ?? '')) ?></td>
@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tr.innerHTML = `
                 <td>${statusBadge(job.status)}</td>
                 <td>${escapeHtml(toDate(job.createdAt))}</td>
-                <td><code>${escapeHtml(job.targetPath || '')}</code></td>
+                <td><code class="file-name-wrap">${escapeHtml(job.targetPath || '')}</code></td>
                 <td style="max-width: 520px; word-break: break-all;">${escapeHtml(job.url || '')}</td>
                 <td>${escapeHtml((job.tool || '') + ' ' + (job.mode || ''))}</td>
                 <td style="max-width: 420px; word-break: break-word;">${escapeHtml(job.error || '')}</td>

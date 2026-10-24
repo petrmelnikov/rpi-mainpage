@@ -178,3 +178,43 @@
     height: 16px;
     fill: #fff;
 }
+
+/* File manager: wrap very long file/directory names instead of overflowing. */
+.file-name-wrap {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+.file-name-cell {
+    min-width: 0;
+    max-width: 100%;
+}
+.file-name-cell a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+/* Popup dialogs: long names must stay inside the dialog. */
+.modal-body .file-name-wrap,
+.modal-title.file-name-wrap,
+#deleteFileName,
+#deleteDirName,
+#renameDirCurrentName,
+#overrideMediaInfoTargetName,
+#videoInfoFileName,
+#mediaPlayerModalLabel {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+.modal-body {
+    min-width: 0;
+    overflow-wrap: break-word;
+}
+.breadcrumb-item {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}

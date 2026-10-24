@@ -66,7 +66,7 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
         <?php endif; ?>
         
         <p class="text-muted">
-            Current Path: <code><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
+            Current Path: <code class="file-name-wrap"><?= htmlspecialchars($currentFullPath ?? $catalogPath) ?></code>
         </p>
 
         <form action="/file-index" method="GET" class="card card-body mb-3">
@@ -273,8 +273,8 @@ $nextDateSortOrder = $sortBy === 'date' && $sortOrder === 'asc' ? 'desc' : 'asc'
                                         <i><?= $icon ?></i> <span class="badge bg-info text-dark"><?= strtoupper($extension ?: 'FILE') ?></span>
                                     <?php endif; ?>
                                 </td>
-                                <td>
-                                    <span class="fw-medium">
+                                <td class="file-name-cell">
+                                    <span class="fw-medium file-name-wrap">
                                         <?php if ($file['isDir'] && $file['isNavigable']): ?>
                                             <a href="<?= htmlspecialchars($buildFileIndexUrl($file['path'], ['q' => null])) ?>"
                                                class="text-decoration-none">
@@ -490,7 +490,7 @@ function showDownloadProgress(button) {
             <form action="/file-index/delete" method="POST">
                 <div class="modal-body">
                     <p class="mb-2">Delete file:</p>
-                    <p class="mb-0"><strong id="deleteFileName"></strong></p>
+                    <p class="mb-0"><strong id="deleteFileName" class="file-name-wrap"></strong></p>
                     <p class="text-muted small mb-0">This action cannot be undone.</p>
 
                     <input type="hidden" name="path" id="deleteFilePath" value="">
@@ -516,7 +516,7 @@ function showDownloadProgress(button) {
             <form action="/file-index/dir/delete" method="POST">
                 <div class="modal-body">
                     <p class="mb-2">Delete directory (must be empty):</p>
-                    <p class="mb-0"><strong id="deleteDirName"></strong></p>
+                    <p class="mb-0"><strong id="deleteDirName" class="file-name-wrap"></strong></p>
                     <p class="text-muted small mb-0">This action cannot be undone.</p>
 
                     <input type="hidden" name="path" id="deleteDirPath" value="">
@@ -543,7 +543,7 @@ function showDownloadProgress(button) {
                 <div class="modal-body">
                     <div class="mb-2">
                         <div class="small text-muted">Current name:</div>
-                        <div class="fw-semibold" id="renameDirCurrentName"></div>
+                        <div class="fw-semibold file-name-wrap" id="renameDirCurrentName"></div>
                     </div>
 
                     <label class="form-label" for="renameDirNewName">New name</label>
@@ -572,7 +572,7 @@ function showDownloadProgress(button) {
             <div class="modal-body">
                 <div class="mb-2">
                     <div class="small text-muted">Target:</div>
-                    <div class="fw-semibold" id="overrideMediaInfoTargetName"></div>
+                    <div class="fw-semibold file-name-wrap" id="overrideMediaInfoTargetName"></div>
                 </div>
 
                 <div class="alert alert-danger d-none" id="overrideMediaInfoError"></div>
@@ -606,7 +606,7 @@ function showDownloadProgress(button) {
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="small text-muted text-break mb-1" id="videoInfoFileName"></div>
+                <div class="small text-muted text-break mb-1 file-name-wrap" id="videoInfoFileName"></div>
                 <div id="videoInfoBody"></div>
             </div>
         </div>
@@ -618,7 +618,7 @@ function showDownloadProgress(button) {
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content bg-dark">
             <div class="modal-header border-0 py-2">
-                <h6 class="modal-title text-white" id="mediaPlayerModalLabel">Media Player</h6>
+                <h6 class="modal-title text-white file-name-wrap" id="mediaPlayerModalLabel">Media Player</h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
